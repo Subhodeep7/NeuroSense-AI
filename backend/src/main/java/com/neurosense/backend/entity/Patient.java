@@ -3,7 +3,7 @@ package com.neurosense.backend.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
 @Table(name = "patients")
@@ -13,7 +13,6 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-
 public class Patient {
 
     @Id
@@ -26,9 +25,6 @@ public class Patient {
 
     private String gender;
 
-    private Integer prediction;
-
-    private Double confidence;
-
-    private LocalDateTime createdAt;
+    @OneToMany(mappedBy = "patient", cascade = CascadeType.ALL)
+    private List<Prediction> predictions;
 }
