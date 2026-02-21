@@ -176,4 +176,13 @@ public class PredictionController {
 
     }
 
+    @PostMapping("/patients")
+    public Patient createPatient(
+            @RequestBody Patient patient
+    ) {
+
+        return patientRepository.save(patient);
+
+    }
+
 }

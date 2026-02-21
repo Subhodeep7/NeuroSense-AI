@@ -98,120 +98,156 @@ function PredictionPage() {
 
   return (
 
-    <div
-      style={{
-        padding: "40px",
-        maxWidth: "600px",
-        margin: "auto"
-      }}
-    >
+    <div className="max-w-2xl mx-auto space-y-6">
 
-      <h1>NeuroSense AI</h1>
+      {/* Page Title */}
+      <div>
 
-      <p>Audio-based Parkinson's Detection</p>
+        <h2 className="text-2xl font-bold text-gray-800">
+          Audio Prediction
+        </h2>
+
+        <p className="text-gray-500">
+          Upload patient voice sample to detect Parkinson's
+        </p>
+
+      </div>
 
 
-      {/* Patient selector */}
+      {/* Patient Selector Card */}
+      <div className="bg-white shadow rounded-xl p-6">
 
-      <select
-        onChange={(e) =>
-          setSelectedPatient(
-            Number(e.target.value)
-          )
-        }
-        style={{
-          width: "100%",
-          padding: "10px",
-          marginBottom: "20px"
-        }}
-      >
-
-        <option>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
           Select Patient
-        </option>
+        </label>
 
-        {patients.map((p) => (
+        <select
+          onChange={(e) =>
+            setSelectedPatient(
+              Number(e.target.value)
+            )
+          }
+          className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
 
-          <option
-            key={p.id}
-            value={p.id}
-          >
-
-            {p.name} (Age {p.age})
-
+          <option value="">
+            Choose a patient
           </option>
 
-        ))}
+          {patients.map((p) => (
 
-      </select>
+            <option
+              key={p.id}
+              value={p.id}
+            >
 
+              {p.name} (Age {p.age})
 
-      {/* File upload */}
+            </option>
 
-      <input
-        type="file"
-        accept=".wav"
-        onChange={(e) =>
-          setFile(
-            e.target.files?.[0] || null
-          )
-        }
-        style={{
-          marginBottom: "20px"
-        }}
-      />
+          ))}
+
+        </select>
+
+      </div>
 
 
-      {/* Predict button */}
+      {/* File Upload Card */}
+      <div className="bg-white shadow rounded-xl p-6">
 
+        <label className="block text-sm font-medium text-gray-700 mb-3">
+          Upload Audio File (.wav)
+        </label>
+
+        <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-500 transition">
+
+          <input
+            type="file"
+            accept=".wav"
+            onChange={(e) =>
+              setFile(
+                e.target.files?.[0] || null
+              )
+            }
+            className="mx-auto block"
+          />
+
+          {file && (
+
+            <p className="mt-3 text-sm text-green-600 font-medium">
+              Selected: {file.name}
+            </p>
+
+          )}
+
+        </div>
+
+      </div>
+
+
+      {/* Predict Button */}
       <button
         onClick={handlePredict}
         disabled={loading}
-        style={{
-          width: "100%",
-          padding: "12px",
-          backgroundColor: "#4CAF50",
-          color: "white",
-          border: "none",
-          cursor: "pointer"
-        }}
+        className={`w-full py-3 rounded-xl font-semibold text-white transition ${
+          loading
+            ? "bg-gray-400 cursor-not-allowed"
+            : "bg-blue-600 hover:bg-blue-700"
+        }`}
       >
 
         {loading
           ? "Predicting..."
-          : "Predict"}
+          : "Run Prediction"}
 
       </button>
 
 
-      {/* Result */}
-
+      {/* Result Card */}
       {result && (
 
-        <div
-          style={{
-            marginTop: "30px"
-          }}
-        >
+        <div className="bg-white shadow rounded-xl p-6">
 
-          <h3>Result</h3>
+          <h3 className="text-lg font-semibold mb-4">
+            Prediction Result
+          </h3>
 
-          <p>
+          <div className="space-y-2">
 
-            Prediction:
-            {result.prediction === 1
-              ? " Parkinson's Detected"
-              : " Healthy"}
+            <p className="text-gray-700">
 
-          </p>
+              Status:
 
-          <p>
+              <span
+                className={`ml-2 font-semibold ${
+                  result.prediction === 1
+                    ? "text-red-600"
+                    : "text-green-600"
+                }`}
+              >
 
-            Confidence:
-            {(result.confidence * 100)
-              .toFixed(2)}%
+                {result.prediction === 1
+                  ? "Parkinson's Detected"
+                  : "Healthy"}
 
-          </p>
+              </span>
+
+            </p>
+
+            <p className="text-gray-700">
+
+              Confidence:
+
+              <span className="ml-2 font-semibold text-blue-600">
+
+                {(result.confidence * 100)
+                  .toFixed(2)}%
+
+              </span>
+
+            </p>
+
+          </div>
 
         </div>
 
