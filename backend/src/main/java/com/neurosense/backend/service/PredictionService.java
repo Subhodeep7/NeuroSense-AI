@@ -8,6 +8,7 @@ import com.neurosense.backend.repository.PredictionRepository;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -18,11 +19,105 @@ import java.util.Map;
 public class PredictionService {
 
     @Autowired
+    private AudioStorageService storageService;
+
+    @Autowired
+    private VoicePredictionService voicePredictionService;
+
+    @Autowired
+    private HandwritingPredictionService handwritingPredictionService;
+
+    @Autowired
+    private FusionService fusionService;
+
+    @Autowired
     private PatientRepository patientRepository;
 
     @Autowired
     private PredictionRepository predictionRepository;
 
+
+    public Map<String, Object> predictMultimodal(
+            MultipartFile voiceFile,
+            MultipartFile handwritingFile,
+            Long patientId
+    ) {
+
+        try {
+
+            // 1 Store files
+            String voicePath =
+                    storageService.store(voiceFile);
+
+            String handwritingPath =
+                    storageService.store(handwritingFile);
+
+
+            // 2 Run voice model
+            Map<String, Object> voiceResult =
+                    voicePredictionService.predict(voicePath);
+
+
+            // 3 Run handwriting model
+            Map<String, Object> handwritingResult =
+                    handwritingPredictionService.predict(handwritingPath);
+
+
+            // 4 Fuse predictions
+            Map<String, Object> fusionResult =
+                    fusionService.fuse(
+                            voiceResult,
+                            handwritingResult
+                    );
+
+
+            // 5 Get patient
+            Patient patient =
+                    patientRepository
+                            .findById(patientId)
+                            .orElseThrow(
+                                    () -> new RuntimeException("Patient not found")
+                            );
+
+
+            // 6 Save prediction
+            Prediction prediction =
+                    Prediction.builder()
+                            .voiceConfidence(
+                                    ((Number) voiceResult.get("confidence")).doubleValue()
+                            )
+                            .handwritingConfidence(
+                                    ((Number) handwritingResult.get("confidence")).doubleValue()
+                            )
+                            .finalPrediction(
+                                    ((Number) fusionResult.get("finalPrediction")).intValue()
+                            )
+                            .finalRisk(
+                                    ((Number) fusionResult.get("finalRisk")).doubleValue()
+                            )
+                            .filePath(voicePath)
+                            .originalFileName(voiceFile.getOriginalFilename())
+                            .createdAt(LocalDateTime.now())
+                            .patient(patient)
+                            .build();
+
+
+            predictionRepository.save(prediction);
+
+
+            // 7 Return fusion result
+            return fusionResult;
+
+        }
+        catch (Exception e) {
+
+            e.printStackTrace();
+
+            throw new RuntimeException("Multimodal prediction failed");
+
+        }
+
+    }
 
     public Patient predictAndSave(
             String name,
@@ -33,20 +128,14 @@ public class PredictionService {
 
         try {
 
-            // Convert features to JSON
-            ObjectMapper mapper =
-                    new ObjectMapper();
+            ObjectMapper mapper = new ObjectMapper();
 
             String featuresJson =
                     mapper.writeValueAsString(features);
 
-
-            // Python script path
             String pythonScriptPath =
-                    "C:/Users/mitra/Documents/NeuroSense-AI/ml-model/inference/predict.py";
+                    "C:/Users/mitra/Documents/NeuroSense-AI/ml-model/inference/predict_voice.py";
 
-
-            // Run python
             ProcessBuilder processBuilder =
                     new ProcessBuilder(
                             "python",
@@ -54,13 +143,9 @@ public class PredictionService {
                             featuresJson
                     );
 
-
             processBuilder.redirectErrorStream(true);
 
-
-            Process process =
-                    processBuilder.start();
-
+            Process process = processBuilder.start();
 
             BufferedReader reader =
                     new BufferedReader(
@@ -69,52 +154,32 @@ public class PredictionService {
                             )
                     );
 
-
-            StringBuilder outputBuilder =
-                    new StringBuilder();
-
+            StringBuilder outputBuilder = new StringBuilder();
 
             String line;
 
-
             while ((line = reader.readLine()) != null) {
 
-                System.out.println(
-                        "PYTHON OUTPUT: " + line
-                );
+                System.out.println("PYTHON OUTPUT: " + line);
 
                 outputBuilder.append(line);
 
             }
 
-
             process.waitFor();
 
+            String output = outputBuilder.toString();
 
-            String output =
-                    outputBuilder.toString();
-
-
-            System.out.println(
-                    "FINAL OUTPUT: " + output
-            );
-
-
-            // Parse JSON result
             Map<String, Object> predictionResult =
                     mapper.readValue(output, Map.class);
-
 
             Integer predictionValue =
                     (Integer) predictionResult.get("prediction");
 
-
             Double confidenceValue =
-                    ((Number) predictionResult.get("confidence"))
-                            .doubleValue();
+                    ((Number) predictionResult.get("confidence")).doubleValue();
 
 
-            // STEP 1: Create and save Patient
             Patient patient =
                     Patient.builder()
                             .name(name)
@@ -122,36 +187,27 @@ public class PredictionService {
                             .gender(gender)
                             .build();
 
-
-            patient =
-                    patientRepository.save(patient);
+            patient = patientRepository.save(patient);
 
 
-            // STEP 2: Create and save Prediction
             Prediction prediction =
                     Prediction.builder()
-                            .prediction(predictionValue)
-                            .confidence(confidenceValue)
+                            .finalPrediction(predictionValue)
+                            .finalRisk(confidenceValue)
                             .createdAt(LocalDateTime.now())
                             .patient(patient)
                             .build();
 
-
             predictionRepository.save(prediction);
 
-
-            // Return patient
             return patient;
-
 
         }
         catch (Exception e) {
 
             e.printStackTrace();
 
-            throw new RuntimeException(
-                    "Prediction failed"
-            );
+            throw new RuntimeException("Prediction failed");
 
         }
 

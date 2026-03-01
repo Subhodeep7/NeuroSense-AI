@@ -24,9 +24,13 @@ public class Prediction {
 
     private String originalFileName;
 
-    private Integer prediction;
+    private Double voiceConfidence;
 
-    private Double confidence;
+    private Double handwritingConfidence;
+
+    private Integer finalPrediction;
+
+    private Double finalRisk;
 
     private LocalDateTime createdAt;
 

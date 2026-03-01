@@ -1,73 +1,51 @@
 import { useEffect, useState } from "react";
-
+import RiskGauge from "../components/RiskGauge";
 import {
-  uploadAudio,
-  getAllPatients
+  getAllPatients,
+  predictMultimodal
 } from "../api/predictionApi";
 
-import type {
-  Patient
-} from "../types/prediction";
-
+import type { Patient } from "../types/prediction";
 
 function PredictionPage() {
 
-  const [patients, setPatients] =
-    useState<Patient[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<number | null>(null);
 
-  const [selectedPatient, setSelectedPatient] =
-    useState<number | null>(null);
+  const [voiceFile, setVoiceFile] = useState<File | null>(null);
+  const [handwritingFile, setHandwritingFile] = useState<File | null>(null);
 
-  const [file, setFile] =
-    useState<File | null>(null);
-
-  const [result, setResult] =
-    useState<any>(null);
-
-  const [loading, setLoading] =
-    useState(false);
-
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-
     loadPatients();
-
   }, []);
 
-
   async function loadPatients() {
-
     try {
-
-      const data =
-        await getAllPatients();
-
+      const data = await getAllPatients();
       setPatients(data);
-
-    }
-    catch {
-
+    } catch {
       alert("Failed to load patients");
-
     }
-
   }
-
 
   async function handlePredict() {
 
     if (!selectedPatient) {
-
       alert("Select patient first");
       return;
-
     }
 
-    if (!file) {
-
-      alert("Select audio file");
+    if (!voiceFile) {
+      alert("Upload voice file (.wav)");
       return;
+    }
 
+    if (!handwritingFile) {
+      alert("Upload handwriting image");
+      return;
     }
 
     setLoading(true);
@@ -75,46 +53,43 @@ function PredictionPage() {
     try {
 
       const response =
-        await uploadAudio(
-          file,
+        await predictMultimodal(
+          voiceFile,
+          handwritingFile,
           selectedPatient
         );
 
       setResult(response);
 
-    }
-    catch (error) {
-
-      alert("Prediction failed");
+    } catch (error) {
 
       console.error(error);
+      alert("Prediction failed");
 
     }
 
     setLoading(false);
-
   }
-
 
   return (
 
     <div className="max-w-2xl mx-auto space-y-6">
 
-      {/* Page Title */}
+      {/* Title */}
       <div>
 
         <h2 className="text-2xl font-bold text-gray-800">
-          Audio Prediction
+          NeuroSense Multimodal Prediction
         </h2>
 
         <p className="text-gray-500">
-          Upload patient voice sample to detect Parkinson's
+          Upload voice + handwriting sample to screen for Parkinson's
         </p>
 
       </div>
 
 
-      {/* Patient Selector Card */}
+      {/* Patient Selector */}
       <div className="bg-white shadow rounded-xl p-6">
 
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -123,11 +98,9 @@ function PredictionPage() {
 
         <select
           onChange={(e) =>
-            setSelectedPatient(
-              Number(e.target.value)
-            )
+            setSelectedPatient(Number(e.target.value))
           }
-          className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border rounded-lg px-4 py-2"
         >
 
           <option value="">
@@ -152,35 +125,78 @@ function PredictionPage() {
       </div>
 
 
-      {/* File Upload Card */}
+      {/* Voice Upload */}
       <div className="bg-white shadow rounded-xl p-6">
 
         <label className="block text-sm font-medium text-gray-700 mb-3">
-          Upload Audio File (.wav)
+          Upload Voice Sample (.wav)
         </label>
 
-        <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-500 transition">
+        <input
+          type="file"
+          accept=".wav"
+          onChange={(e) =>
+            setVoiceFile(
+              e.target.files?.[0] || null
+            )
+          }
+        />
 
-          <input
-            type="file"
-            accept=".wav"
-            onChange={(e) =>
-              setFile(
-                e.target.files?.[0] || null
-              )
-            }
-            className="mx-auto block"
-          />
+        {voiceFile && (
 
-          {file && (
-
-            <p className="mt-3 text-sm text-green-600 font-medium">
-              Selected: {file.name}
+          <>
+            <p className="text-green-600 mt-2">
+              Selected: {voiceFile.name}
             </p>
 
-          )}
+            {/* Audio Player */}
+            <audio
+              controls
+              className="mt-3 w-full"
+              src={URL.createObjectURL(voiceFile)}
+            />
 
-        </div>
+          </>
+
+        )}
+
+      </div>
+
+
+      {/* Handwriting Upload */}
+      <div className="bg-white shadow rounded-xl p-6">
+
+        <label className="block text-sm font-medium text-gray-700 mb-3">
+          Upload Handwriting Image
+        </label>
+
+        <input
+          type="file"
+          accept=".png,.jpg,.jpeg"
+          onChange={(e) =>
+            setHandwritingFile(
+              e.target.files?.[0] || null
+            )
+          }
+        />
+
+        {handwritingFile && (
+
+          <>
+            <p className="text-green-600 mt-2">
+              Selected: {handwritingFile.name}
+            </p>
+
+            {/* Image Preview */}
+            <img
+              src={URL.createObjectURL(handwritingFile)}
+              alt="Handwriting Preview"
+              className="mt-3 rounded-lg border max-h-48"
+            />
+
+          </>
+
+        )}
 
       </div>
 
@@ -189,65 +205,48 @@ function PredictionPage() {
       <button
         onClick={handlePredict}
         disabled={loading}
-        className={`w-full py-3 rounded-xl font-semibold text-white transition ${
+        className={`w-full py-3 rounded-xl font-semibold text-white ${
           loading
-            ? "bg-gray-400 cursor-not-allowed"
+            ? "bg-gray-400"
             : "bg-blue-600 hover:bg-blue-700"
         }`}
       >
 
         {loading
-          ? "Predicting..."
-          : "Run Prediction"}
+          ? "Analyzing..."
+          : "Analyze Parkinson Risk"}
 
       </button>
 
 
-      {/* Result Card */}
+      {/* Result */}
       {result && (
 
-        <div className="bg-white shadow rounded-xl p-6">
+        <div className="bg-white shadow rounded-xl p-6 space-y-4">
 
-          <h3 className="text-lg font-semibold mb-4">
+          <h3 className="text-lg font-semibold">
             Prediction Result
           </h3>
 
-          <div className="space-y-2">
+          <p>
+            Voice Confidence:
+            <span className="ml-2 font-semibold text-blue-600">
+              {(result.voice.confidence * 100).toFixed(2)}%
+            </span>
+          </p>
 
-            <p className="text-gray-700">
+          <p>
+            Handwriting Confidence:
+            <span className="ml-2 font-semibold text-blue-600">
+              {(result.handwriting.confidence * 100).toFixed(2)}%
+            </span>
+          </p>
 
-              Status:
-
-              <span
-                className={`ml-2 font-semibold ${
-                  result.prediction === 1
-                    ? "text-red-600"
-                    : "text-green-600"
-                }`}
-              >
-
-                {result.prediction === 1
-                  ? "Parkinson's Detected"
-                  : "Healthy"}
-
-              </span>
-
-            </p>
-
-            <p className="text-gray-700">
-
-              Confidence:
-
-              <span className="ml-2 font-semibold text-blue-600">
-
-                {(result.confidence * 100)
-                  .toFixed(2)}%
-
-              </span>
-
-            </p>
-
-          </div>
+          {/* Risk Meter */}
+          <RiskGauge
+            risk={result.finalRisk}
+            level={result.riskLevel}
+          />
 
         </div>
 
@@ -256,7 +255,6 @@ function PredictionPage() {
     </div>
 
   );
-
 }
 
 export default PredictionPage;

@@ -59,9 +59,11 @@ public class PredictionController {
     }
 
 
-    // NEW Production-ready audio endpoint
-    @PostMapping(value = "/predict-audio",
-            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    // Audio prediction endpoint
+    @PostMapping(
+            value = "/predict-audio",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
     public ResponseEntity<?> predictAudio(
             @RequestParam("file") MultipartFile file,
             @RequestParam("patientId") Long patientId
@@ -69,18 +71,16 @@ public class PredictionController {
 
         try {
 
-            // 1 Store file permanently
-            String filePath =
-                    audioStorageService.store(file);
+            // 1 Store file
+            String filePath = audioStorageService.store(file);
 
 
             // 2 Run python model
-            ProcessBuilder pb =
-                    new ProcessBuilder(
-                            "C:/Python312/python.exe",
-                            "C:/Users/mitra/Documents/NeuroSense-AI/ml-model/inference/predict.py",
-                            filePath
-                    );
+            ProcessBuilder pb = new ProcessBuilder(
+                    "python",
+                    "C:/Users/mitra/Documents/NeuroSense-AI/ml-model/inference/predict_voice.py",
+                    filePath
+            );
 
             pb.redirectErrorStream(true);
 
@@ -93,8 +93,7 @@ public class PredictionController {
                             )
                     );
 
-            StringBuilder outputBuilder =
-                    new StringBuilder();
+            StringBuilder outputBuilder = new StringBuilder();
 
             String line;
 
@@ -108,12 +107,9 @@ public class PredictionController {
 
             process.waitFor();
 
-            String output =
-                    outputBuilder.toString();
+            String output = outputBuilder.toString();
 
-
-            ObjectMapper mapper =
-                    new ObjectMapper();
+            ObjectMapper mapper = new ObjectMapper();
 
             Map<String, Object> result =
                     mapper.readValue(output, Map.class);
@@ -134,17 +130,16 @@ public class PredictionController {
                             );
 
 
-            // 4 Save prediction
+            // 4 Save prediction (UPDATED FIELDS)
             Prediction prediction =
                     Prediction.builder()
                             .filePath(filePath)
                             .originalFileName(file.getOriginalFilename())
-                            .prediction(predictionValue)
-                            .confidence(confidenceValue)
+                            .finalPrediction(predictionValue)
+                            .finalRisk(confidenceValue)
                             .createdAt(java.time.LocalDateTime.now())
                             .patient(patient)
                             .build();
-
 
             predictionRepository.save(prediction);
 
@@ -166,7 +161,7 @@ public class PredictionController {
     }
 
 
-    // NEW history endpoint
+    // Prediction history
     @GetMapping("/patients/{id}/predictions")
     public List<Prediction> getPredictionHistory(
             @PathVariable Long id
@@ -176,12 +171,51 @@ public class PredictionController {
 
     }
 
+
+    // Create patient
     @PostMapping("/patients")
     public Patient createPatient(
             @RequestBody Patient patient
     ) {
 
         return patientRepository.save(patient);
+
+    }
+
+
+    // Multimodal prediction endpoint
+    @PostMapping(
+            value = "/predict-multimodal",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<?> predictMultimodal(
+
+            @RequestParam("voiceFile") MultipartFile voiceFile,
+            @RequestParam("handwritingFile") MultipartFile handwritingFile,
+            @RequestParam("patientId") Long patientId
+    ) {
+
+        try {
+
+            Map<String, Object> result =
+                    predictionService.predictMultimodal(
+                            voiceFile,
+                            handwritingFile,
+                            patientId
+                    );
+
+            return ResponseEntity.ok(result);
+
+        }
+        catch (Exception e) {
+
+            e.printStackTrace();
+
+            return ResponseEntity
+                    .status(500)
+                    .body("Multimodal prediction failed");
+
+        }
 
     }
 
