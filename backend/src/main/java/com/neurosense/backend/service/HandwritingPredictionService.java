@@ -13,7 +13,7 @@ public class HandwritingPredictionService {
     private static final String PYTHON_COMMAND = "python";
 
     private static final String SCRIPT_PATH =
-            "C:/Users/mitra/Documents/NeuroSense-AI/ml-model/inference/predict_handwriting.py";
+            "ml-model/inference/predict_handwriting.py";
 
     public Map<String, Object> predict(String imagePath) {
 
