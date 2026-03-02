@@ -36,7 +36,7 @@ class CNN(nn.Module):
 
 
 # ---------------------------
-# Load model safely
+# Load model
 # ---------------------------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -54,7 +54,8 @@ model.eval()
 transform = transforms.Compose([
     transforms.Grayscale(),
     transforms.Resize((128, 128)),
-    transforms.ToTensor()
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5], std=[0.5])
 ])
 
 
@@ -64,7 +65,7 @@ transform = transforms.Compose([
 
 image_path = sys.argv[1]
 
-image = Image.open(image_path)
+image = Image.open(image_path).convert("RGB")
 image = transform(image).unsqueeze(0)
 
 

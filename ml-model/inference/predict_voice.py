@@ -11,12 +11,11 @@ import os
 
 
 # =========================
-# BASE PATH (SAFE)
+# BASE PATH
 # =========================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "..", "saved-model")
-
 
 RF_PATH = os.path.join(MODEL_DIR, "rf_model.pkl")
 XGB_PATH = os.path.join(MODEL_DIR, "xgb_model.pkl")
@@ -106,7 +105,7 @@ def ensemble_predict(features_scaled):
 
     # Majority voting
     votes = list(predictions.values())
-    final_prediction = int(round(sum(votes) / len(votes)))
+    final_prediction = max(set(votes), key=votes.count)
 
     # Average probability
     avg_probability = float(np.mean(probabilities))
@@ -115,7 +114,7 @@ def ensemble_predict(features_scaled):
 
     return {
         "model": "voice",
-        "prediction": final_prediction,
+        "prediction": int(final_prediction),
         "confidence": confidence,
         "model_predictions": predictions
     }

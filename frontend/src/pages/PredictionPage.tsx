@@ -132,24 +132,34 @@ function PredictionPage() {
           Upload Voice Sample (.wav)
         </label>
 
-        <input
-          type="file"
-          accept=".wav"
-          onChange={(e) =>
-            setVoiceFile(
-              e.target.files?.[0] || null
-            )
-          }
-        />
+        <label className="flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 cursor-pointer hover:bg-gray-50">
+
+          <span className="text-gray-600">
+            {voiceFile ? voiceFile.name : "Select voice file"}
+          </span>
+
+          <span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">
+            Browse
+          </span>
+
+          <input
+            type="file"
+            accept=".wav"
+            onChange={(e) =>
+              setVoiceFile(e.target.files?.[0] || null)
+            }
+            className="hidden"
+          />
+
+        </label>
 
         {voiceFile && (
 
           <>
-            <p className="text-green-600 mt-2">
+            <p className="text-green-600 mt-3">
               Selected: {voiceFile.name}
             </p>
 
-            {/* Audio Player */}
             <audio
               controls
               className="mt-3 w-full"
@@ -170,24 +180,34 @@ function PredictionPage() {
           Upload Handwriting Image
         </label>
 
-        <input
-          type="file"
-          accept=".png,.jpg,.jpeg"
-          onChange={(e) =>
-            setHandwritingFile(
-              e.target.files?.[0] || null
-            )
-          }
-        />
+        <label className="flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 cursor-pointer hover:bg-gray-50">
+
+          <span className="text-gray-600">
+            {handwritingFile ? handwritingFile.name : "Select handwriting image"}
+          </span>
+
+          <span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">
+            Browse
+          </span>
+
+          <input
+            type="file"
+            accept=".png,.jpg,.jpeg"
+            onChange={(e) =>
+              setHandwritingFile(e.target.files?.[0] || null)
+            }
+            className="hidden"
+          />
+
+        </label>
 
         {handwritingFile && (
 
           <>
-            <p className="text-green-600 mt-2">
+            <p className="text-green-600 mt-3">
               Selected: {handwritingFile.name}
             </p>
 
-            {/* Image Preview */}
             <img
               src={URL.createObjectURL(handwritingFile)}
               alt="Handwriting Preview"

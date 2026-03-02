@@ -12,25 +12,15 @@ interface Patient {
 
 function PatientsPage() {
 
-  const [patients, setPatients] =
-    useState<Patient[]>([]);
-
-  const [name, setName] =
-    useState("");
-
-  const [age, setAge] =
-    useState<number>(60);
-
-  const [gender, setGender] =
-    useState("Male");
-
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [name, setName] = useState("");
+  const [age, setAge] = useState<number>(60);
+  const [gender, setGender] = useState("Male");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-
     loadPatients();
-
   }, []);
-
 
   async function loadPatients() {
 
@@ -41,27 +31,23 @@ function PatientsPage() {
 
       setPatients(response.data);
 
-    }
-    catch (error) {
+    } catch (error) {
 
       console.error(error);
-
       alert("Failed to load patients");
 
     }
 
   }
 
-
   async function addPatient() {
 
-    if (!name || !age || !gender) {
-
-      alert("Fill all fields");
-
+    if (!name.trim() || age <= 0) {
+      alert("Enter valid patient details");
       return;
-
     }
+
+    setLoading(true);
 
     try {
 
@@ -74,25 +60,22 @@ function PatientsPage() {
         }
       );
 
-      alert("Patient added");
-
       setName("");
       setAge(60);
       setGender("Male");
 
-      loadPatients();
+      await loadPatients();
 
-    }
-    catch (error) {
+    } catch (error) {
 
       console.error(error);
-
       alert("Failed to add patient");
 
     }
 
-  }
+    setLoading(false);
 
+  }
 
   return (
 
@@ -127,9 +110,8 @@ function PatientsPage() {
             onChange={(e) =>
               setName(e.target.value)
             }
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500"
           />
-
 
           <input
             type="number"
@@ -138,37 +120,35 @@ function PatientsPage() {
             onChange={(e) =>
               setAge(Number(e.target.value))
             }
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500"
           />
-
 
           <select
             value={gender}
             onChange={(e) =>
               setGender(e.target.value)
             }
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500"
           >
 
-            <option value="Male">
-              Male
-            </option>
-
-            <option value="Female">
-              Female
-            </option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
 
           </select>
 
         </div>
 
-
         <button
           onClick={addPatient}
-          className="mt-4 w-full md:w-auto px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+          disabled={loading}
+          className={`mt-4 w-full md:w-auto px-6 py-2 text-white rounded-lg font-semibold transition ${
+            loading
+              ? "bg-gray-400"
+              : "bg-blue-600 hover:bg-blue-700"
+          }`}
         >
 
-          Add Patient
+          {loading ? "Adding..." : "Add Patient"}
 
         </button>
 
@@ -182,72 +162,63 @@ function PatientsPage() {
           Patient List
         </h3>
 
-        <div className="overflow-x-auto">
+        {patients.length === 0 ? (
 
-          <table className="w-full">
+          <p className="text-gray-400">
+            No patients added yet
+          </p>
 
-            <thead>
+        ) : (
 
-              <tr className="border-b text-left text-gray-600">
+          <div className="overflow-x-auto">
 
-                <th className="py-2">
-                  ID
-                </th>
+            <table className="w-full">
 
-                <th className="py-2">
-                  Name
-                </th>
+              <thead>
 
-                <th className="py-2">
-                  Age
-                </th>
+                <tr className="border-b text-left text-gray-600">
 
-                <th className="py-2">
-                  Gender
-                </th>
-
-              </tr>
-
-            </thead>
-
-
-            <tbody>
-
-              {patients.map((p) => (
-
-                <tr
-                  key={p.id}
-                  className="border-b hover:bg-gray-50"
-                >
-
-                  <td className="py-2">
-                    {p.id}
-                  </td>
-
-                  <td className="py-2 font-medium">
-                    {p.name}
-                  </td>
-
-                  <td className="py-2">
-                    {p.age}
-                  </td>
-
-                  <td className="py-2">
-                    {p.gender}
-                  </td>
+                  <th className="py-2">ID</th>
+                  <th className="py-2">Name</th>
+                  <th className="py-2">Age</th>
+                  <th className="py-2">Gender</th>
 
                 </tr>
 
-              ))}
+              </thead>
 
-            </tbody>
+              <tbody>
 
-          </table>
+                {patients.map((p) => (
 
-        </div>
+                  <tr
+                    key={p.id}
+                    className="border-b hover:bg-gray-50"
+                  >
+
+                    <td className="py-2">{p.id}</td>
+
+                    <td className="py-2 font-medium">
+                      {p.name}
+                    </td>
+
+                    <td className="py-2">{p.age}</td>
+
+                    <td className="py-2">{p.gender}</td>
+
+                  </tr>
+
+                ))}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        )}
 
       </div>
-
 
     </div>
 

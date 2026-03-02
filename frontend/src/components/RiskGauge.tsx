@@ -2,12 +2,12 @@ import React from "react";
 
 interface Props {
   risk: number; // value between 0 and 1
-  level: string;
+  level: "LOW" | "MEDIUM" | "HIGH";
 }
 
 function RiskGauge({ risk, level }: Props) {
 
-  const percentage = (risk * 100).toFixed(2);
+  const percentage = risk * 100;
 
   let color = "bg-green-500";
 
@@ -35,15 +35,17 @@ function RiskGauge({ risk, level }: Props) {
 
       </div>
 
+      {/* Progress Bar */}
       <div className="w-full bg-gray-200 rounded-full h-6 overflow-hidden">
 
         <div
-          className={`${color} h-6 transition-all`}
+          className={`${color} h-6 transition-all duration-500 ease-out`}
           style={{ width: `${percentage}%` }}
         />
 
       </div>
 
+      {/* Labels */}
       <div className="flex justify-between text-sm text-gray-500">
 
         <span>LOW</span>
@@ -52,10 +54,11 @@ function RiskGauge({ risk, level }: Props) {
 
       </div>
 
+      {/* Percentage Display */}
       <div className="text-center">
 
         <span className="text-xl font-bold">
-          {percentage}%
+          {percentage.toFixed(2)}%
         </span>
 
         <span className="ml-2 text-gray-600">

@@ -19,7 +19,12 @@ export interface Prediction {
   id: number;
   filePath: string;
   originalFileName: string;
-  prediction: number;
-  confidence: number;
+
+  voiceConfidence?: number;
+  handwritingConfidence?: number;
+
+  finalPrediction: number;
+  finalRisk: number;
+
   createdAt: string;
-}
+} 

@@ -11,34 +11,21 @@ import type {
 
 function HistoryPage() {
 
-  const [patients, setPatients] =
-    useState<Patient[]>([]);
-
-  const [selectedPatient, setSelectedPatient] =
-    useState<number | null>(null);
-
-  const [history, setHistory] =
-    useState<Prediction[]>([]);
-
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<number | null>(null);
+  const [history, setHistory] = useState<Prediction[]>([]);
 
   useEffect(() => {
-
     loadPatients();
-
   }, []);
 
-
   const loadPatients = async () => {
-
     try {
 
-      const data =
-        await getAllPatients();
-
+      const data = await getAllPatients();
       setPatients(data);
 
-    }
-    catch (error) {
+    } catch (error) {
 
       console.error(
         "Failed to load patients",
@@ -46,7 +33,6 @@ function HistoryPage() {
       );
 
     }
-
   };
 
 
@@ -63,8 +49,7 @@ function HistoryPage() {
 
       setHistory(data);
 
-    }
-    catch (error) {
+    } catch (error) {
 
       console.error(
         "Failed to load history",
@@ -74,6 +59,10 @@ function HistoryPage() {
     }
 
   };
+
+
+  const selectedPatientObj =
+    patients.find(p => p.id === selectedPatient);
 
 
   return (
@@ -94,22 +83,24 @@ function HistoryPage() {
       </div>
 
 
-      {/* Patient Selector Card */}
+      {/* Patient Selector */}
       <div className="bg-white shadow rounded-xl p-6">
 
         <label className="block text-sm font-medium text-gray-700 mb-2">
-
           Select Patient
-
         </label>
 
         <select
-          onChange={(e) =>
-            loadHistory(
-              Number(e.target.value)
-            )
-          }
-          className="w-full md:w-80 border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          onChange={(e) => {
+
+            const value = e.target.value;
+
+            if (!value) return;
+
+            loadHistory(Number(value));
+
+          }}
+          className="w-full md:w-80 border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500"
         >
 
           <option value="">
@@ -134,13 +125,20 @@ function HistoryPage() {
       </div>
 
 
-      {/* History Table Card */}
+      {/* History Table */}
       {selectedPatient && (
 
         <div className="bg-white shadow rounded-xl p-6">
 
           <h3 className="text-lg font-semibold mb-4">
+
             Prediction Records
+            {selectedPatientObj && (
+              <span className="text-gray-500 ml-2">
+                – {selectedPatientObj.name}
+              </span>
+            )}
+
           </h3>
 
 
@@ -160,17 +158,9 @@ function HistoryPage() {
 
                   <tr className="border-b text-left text-gray-600">
 
-                    <th className="py-2">
-                      Date
-                    </th>
-
-                    <th className="py-2">
-                      Result
-                    </th>
-
-                    <th className="py-2">
-                      Confidence
-                    </th>
+                    <th className="py-2">Date</th>
+                    <th className="py-2">Result</th>
+                    <th className="py-2">Confidence</th>
 
                   </tr>
 
@@ -194,17 +184,18 @@ function HistoryPage() {
 
                       </td>
 
-                      <td className="py-2 font-semibold">
+
+                      <td className="py-2">
 
                         <span
-                          className={
-                            h.prediction === 1
-                              ? "text-red-600"
-                              : "text-green-600"
-                          }
+                          className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                            h.finalPrediction === 1
+                              ? "bg-red-100 text-red-600"
+                              : "bg-green-100 text-green-600"
+                          }`}
                         >
 
-                          {h.prediction === 1
+                          {h.finalPrediction === 1
                             ? "Parkinson's Detected"
                             : "Healthy"}
 
@@ -212,10 +203,12 @@ function HistoryPage() {
 
                       </td>
 
+
                       <td className="py-2 text-blue-600 font-medium">
 
-                        {(h.confidence * 100)
-                          .toFixed(2)}%
+                        {h.finalRisk
+                          ? (h.finalRisk * 100).toFixed(2) + "%"
+                          : "N/A"}
 
                       </td>
 

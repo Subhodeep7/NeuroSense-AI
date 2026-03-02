@@ -21,7 +21,7 @@ os.makedirs(SAVE_PATH, exist_ok=True)
 
 
 # =========================
-# HIGH ACCURACY FEATURE EXTRACTION
+# FEATURE EXTRACTION
 # =========================
 
 def extract_features(audio_path):
@@ -29,37 +29,29 @@ def extract_features(audio_path):
     y, sr = librosa.load(audio_path, sr=None)
     y = librosa.util.normalize(y)
 
-    # MFCC
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
     mfcc_mean = np.mean(mfcc, axis=1)
     mfcc_std = np.std(mfcc, axis=1)
 
-    # MFCC DELTA (NEW)
     delta = librosa.feature.delta(mfcc)
     delta_mean = np.mean(delta, axis=1)
     delta_std = np.std(delta, axis=1)
 
-    # Chroma
     chroma = librosa.feature.chroma_stft(y=y, sr=sr)
     chroma_mean = np.mean(chroma, axis=1)
 
-    # Spectral contrast
     contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
     contrast_mean = np.mean(contrast, axis=1)
 
-    # Spectral centroid (NEW)
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
     centroid_mean = np.mean(centroid)
 
-    # Spectral bandwidth (NEW)
     bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
     bandwidth_mean = np.mean(bandwidth)
 
-    # ZCR
     zcr = librosa.feature.zero_crossing_rate(y)
     zcr_mean = np.mean(zcr)
 
-    # RMS
     rms = librosa.feature.rms(y=y)
     rms_mean = np.mean(rms)
 
@@ -92,15 +84,19 @@ for label in ["healthy", "parkinsons"]:
 
     for file in os.listdir(folder):
 
-        if file.endswith(".wav"):
+        if not file.endswith(".wav"):
+            continue
 
-            path = os.path.join(folder, file)
+        path = os.path.join(folder, file)
 
+        try:
             features = extract_features(path)
 
             X.append(features)
-
             y.append(0 if label == "healthy" else 1)
+
+        except:
+            print("Skipping file:", file)
 
 
 X = np.array(X)
@@ -190,7 +186,7 @@ print("LR:", accuracy_score(y_test, lr_model.predict(X_test)))
 
 
 # =========================
-# CROSS VALIDATION (REAL ACCURACY)
+# CROSS VALIDATION
 # =========================
 
 print("\nCross Validation Accuracy:")
