@@ -1,0 +1,9 @@
+torch
+torchvision
+numpy
+librosa
+joblib
+scikit-learn
+xgboost
+pillow
+soundfile

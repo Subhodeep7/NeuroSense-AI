@@ -134,7 +134,7 @@ public class PredictionService {
                     mapper.writeValueAsString(features);
 
             String pythonScriptPath =
-                    "C:/Users/mitra/Documents/NeuroSense-AI/ml-model/inference/predict_voice.py";
+                    "ml-model/inference/predict_voice.py";
 
             ProcessBuilder processBuilder =
                     new ProcessBuilder(
