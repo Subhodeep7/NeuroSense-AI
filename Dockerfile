@@ -1,7 +1,7 @@
 # =========================
-# Base Image
+# Base Image (Java 21)
 # =========================
-FROM openjdk:17-slim
+FROM eclipse-temurin:21-jdk-jammy
 
 # Install Python + system dependencies
 RUN apt-get update && apt-get install -y \
@@ -37,8 +37,6 @@ RUN ./mvnw clean package -DskipTests
 # =========================
 WORKDIR /app
 
-# Expose backend port
 EXPOSE 8080
 
-# Run Spring Boot
 CMD ["java", "-jar", "backend/target/backend-0.0.1-SNAPSHOT.jar"]
