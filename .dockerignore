@@ -5,3 +5,4 @@ frontend/dist
 node_modules
 tests
 .idea
+uploads/
