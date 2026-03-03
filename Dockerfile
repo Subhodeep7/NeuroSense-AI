@@ -1,9 +1,8 @@
-# =========================
-# Base Image (Java 21)
-# =========================
 FROM eclipse-temurin:21-jdk-jammy
 
-# Install Python + system dependencies
+WORKDIR /app
+
+# Install Python + dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -11,32 +10,14 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
-
-# =========================
 # Copy ML models
-# =========================
 COPY ml-model ./ml-model
 
-# Install Python dependencies
+# Install ML dependencies
 RUN pip3 install --no-cache-dir -r ml-model/requirements.txt
 
-# =========================
-# Copy Backend
-# =========================
-COPY backend ./backend
+# Copy Spring Boot JAR (already built)
+COPY backend/target/backend-0.0.1-SNAPSHOT.jar app.jar
 
-# Build Spring Boot
-WORKDIR /app/backend
-RUN chmod +x mvnw
-RUN ./mvnw clean package -DskipTests
-
-# =========================
-# Runtime
-# =========================
-WORKDIR /app
-
-EXPOSE 8080
-
-CMD ["java", "-jar", "backend/target/backend-0.0.1-SNAPSHOT.jar"]
+# Run the application
+CMD ["java", "-jar", "app.jar"]
