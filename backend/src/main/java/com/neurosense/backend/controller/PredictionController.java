@@ -219,4 +219,36 @@ public class PredictionController {
 
     }
 
+    // Full multimodal 6-way prediction endpoint (Voice + Handwriting + Gait + Tremor + Reaction Time + Visual)
+    @PostMapping(
+            value = "/predict-full",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<?> predictFull(
+            @RequestParam(value = "voiceFile",       required = false) MultipartFile voiceFile,
+            @RequestParam(value = "handwritingFile", required = false) MultipartFile handwritingFile,
+            @RequestParam(value = "gaitData",        required = false) String gaitData,
+            @RequestParam(value = "tremorData",      required = false) String tremorData,
+            @RequestParam(value = "reactionTimeMs",  required = false) Integer reactionTimeMs,
+            @RequestParam(value = "videoFile",       required = false) MultipartFile videoFile,
+            @RequestParam("patientId") Long patientId
+    ) {
+        try {
+            Map<String, Object> result =
+                    predictionService.predictFull(
+                            voiceFile,
+                            handwritingFile,
+                            gaitData,
+                            tremorData,
+                            reactionTimeMs,
+                            videoFile,
+                            patientId
+                    );
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Full multimodal prediction failed");
+        }
+    }
+
 }

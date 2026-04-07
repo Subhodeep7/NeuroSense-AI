@@ -28,6 +28,15 @@ public class PredictionService {
     private HandwritingPredictionService handwritingPredictionService;
 
     @Autowired
+    private GaitPredictionService gaitPredictionService;
+
+    @Autowired
+    private TremorPredictionService tremorPredictionService;
+
+    @Autowired
+    private VisualPredictionService visualPredictionService;
+
+    @Autowired
     private FusionService fusionService;
 
     @Autowired
@@ -211,6 +220,76 @@ public class PredictionService {
 
         }
 
+    }
+
+    public Map<String, Object> predictFull(
+            MultipartFile voiceFile,
+            MultipartFile handwritingFile,
+            String gaitData,
+            String tremorData,
+            Integer reactionTimeMs,
+            MultipartFile videoFile,
+            Long patientId
+    ) {
+        try {
+            Map<String, Object> voiceResult = null;
+            String voicePath = null;
+            if (voiceFile != null && !voiceFile.isEmpty()) {
+                voicePath = storageService.store(voiceFile);
+                voiceResult = voicePredictionService.predict(voicePath);
+            }
+
+            Map<String, Object> handwritingResult = null;
+            if (handwritingFile != null && !handwritingFile.isEmpty()) {
+                String handwritingPath = storageService.store(handwritingFile);
+                handwritingResult = handwritingPredictionService.predict(handwritingPath);
+            }
+
+            Map<String, Object> gaitResult = null;
+            if (gaitData != null && !gaitData.isEmpty()) {
+                gaitResult = gaitPredictionService.predict(gaitData);
+            }
+
+            Map<String, Object> tremorResult = null;
+            if (tremorData != null && !tremorData.isEmpty()) {
+                tremorResult = tremorPredictionService.predict(tremorData);
+            }
+
+            Map<String, Object> visualResult = null;
+            if (videoFile != null && !videoFile.isEmpty()) {
+                String videoPath = storageService.store(videoFile);
+                visualResult = visualPredictionService.predict(videoPath);
+            }
+
+            Map<String, Object> fusionResult = fusionService.fuse(
+                    voiceResult, handwritingResult, gaitResult, tremorResult, reactionTimeMs, visualResult
+            );
+
+            Patient patient = patientRepository.findById(patientId)
+                    .orElseThrow(() -> new RuntimeException("Patient not found"));
+
+            Prediction prediction = Prediction.builder()
+                    .voiceConfidence((Double) fusionResult.get("voiceConfidence"))
+                    .handwritingConfidence((Double) fusionResult.get("handwritingConfidence"))
+                    .gaitConfidence((Double) fusionResult.get("gaitConfidence"))
+                    .tremorConfidence((Double) fusionResult.get("tremorConfidence"))
+                    .visualConfidence((Double) fusionResult.get("visualConfidence"))
+                    .reactionTimeMs(reactionTimeMs)
+                    .finalPrediction((Integer) fusionResult.get("finalPrediction"))
+                    .finalRisk((Double) fusionResult.get("finalRisk"))
+                    .filePath(voicePath)
+                    .originalFileName(voiceFile != null ? voiceFile.getOriginalFilename() : "multi")
+                    .createdAt(LocalDateTime.now())
+                    .patient(patient)
+                    .build();
+
+            predictionRepository.save(prediction);
+
+            return fusionResult;
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException("Full multimodal prediction failed", e);
+        }
     }
 
 }

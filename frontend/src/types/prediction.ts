@@ -22,6 +22,9 @@ export interface Prediction {
 
   voiceConfidence?: number;
   handwritingConfidence?: number;
+  gaitConfidence?: number;
+  tremorConfidence?: number;
+  reactionTimeMs?: number;
 
   finalPrediction: number;
   finalRisk: number;

@@ -18,30 +18,19 @@ function PatientsPage() {
   const [gender, setGender] = useState("Male");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    loadPatients();
-  }, []);
+  useEffect(() => { loadPatients(); }, []);
 
   async function loadPatients() {
-
     try {
-
-      const response =
-        await axios.get(`${BASE_URL}/patients`);
-
+      const response = await axios.get(`${BASE_URL}/patients`);
       setPatients(response.data);
-
     } catch (error) {
-
       console.error(error);
       alert("Failed to load patients");
-
     }
-
   }
 
   async function addPatient() {
-
     if (!name.trim() || age <= 0) {
       alert("Enter valid patient details");
       return;
@@ -50,15 +39,7 @@ function PatientsPage() {
     setLoading(true);
 
     try {
-
-      await axios.post(
-        `${BASE_URL}/patients`,
-        {
-          name,
-          age,
-          gender
-        }
-      );
+      await axios.post(`${BASE_URL}/patients`, { name, age, gender });
 
       setName("");
       setAge(60);
@@ -67,163 +48,161 @@ function PatientsPage() {
       await loadPatients();
 
     } catch (error) {
-
       console.error(error);
       alert("Failed to add patient");
-
     }
 
     setLoading(false);
-
   }
 
   return (
+    <div className="min-h-screen bg-[#0b0e14] text-[#e1e2eb] relative overflow-hidden">
 
-    <div className="max-w-4xl mx-auto space-y-6">
-
-      {/* Title */}
-      <div>
-
-        <h2 className="text-2xl font-bold text-gray-800">
-          Patients Management
-        </h2>
-
-        <p className="text-gray-500">
-          Add and manage patient records
-        </p>
-
+      {/* 🌌 Background Glow */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#afc6ff]/10 blur-[140px]" />
+        <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-[#d8b9ff]/10 blur-[120px]" />
       </div>
 
+      <div className="relative z-10 max-w-[1400px] mx-auto p-8 space-y-10">
 
-      {/* Add Patient Card */}
-      <div className="bg-white shadow rounded-xl p-6">
-
-        <h3 className="text-lg font-semibold mb-4">
-          Add New Patient
-        </h3>
-
-        <div className="grid md:grid-cols-3 gap-4">
-
-          <input
-            placeholder="Patient Name"
-            value={name}
-            onChange={(e) =>
-              setName(e.target.value)
-            }
-            className="border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500"
-          />
-
-          <input
-            type="number"
-            placeholder="Age"
-            value={age}
-            onChange={(e) =>
-              setAge(Number(e.target.value))
-            }
-            className="border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500"
-          />
-
-          <select
-            value={gender}
-            onChange={(e) =>
-              setGender(e.target.value)
-            }
-            className="border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500"
-          >
-
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-
-          </select>
-
+        {/* 🧠 HEADER */}
+        <div>
+          <h1 className="text-5xl font-extrabold">
+            Patients <span className="text-[#afc6ff]">Management</span>
+          </h1>
+          <p className="text-[#8c90a0]">
+            Manage neural participant records
+          </p>
         </div>
 
-        <button
-          onClick={addPatient}
-          disabled={loading}
-          className={`mt-4 w-full md:w-auto px-6 py-2 text-white rounded-lg font-semibold transition ${
-            loading
-              ? "bg-gray-400"
-              : "bg-blue-600 hover:bg-blue-700"
-          }`}
-        >
+        <div className="grid grid-cols-12 gap-8">
 
-          {loading ? "Adding..." : "Add Patient"}
+          {/* ➕ ADD PATIENT */}
+          <div className="col-span-12 lg:col-span-4">
 
-        </button>
+            <div className="bg-[#1d2026]/60 backdrop-blur-xl border border-[#2a2f3a] p-6 rounded-2xl shadow-[0_0_20px_rgba(175,198,255,0.1)]">
 
-      </div>
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-[#afc6ff]">
+                <span className="material-symbols-outlined">person_add</span>
+                Add Patient
+              </h3>
 
+              <div className="space-y-4">
 
-      {/* Patients Table Card */}
-      <div className="bg-white shadow rounded-xl p-6">
+                <input
+                  placeholder="Name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full bg-[#10131a] border border-[#2a2f3a] px-4 py-3 rounded-lg focus:ring-2 focus:ring-[#afc6ff]"
+                />
 
-        <h3 className="text-lg font-semibold mb-4">
-          Patient List
-        </h3>
+                <div className="grid grid-cols-2 gap-4">
 
-        {patients.length === 0 ? (
+                  <input
+                    type="number"
+                    value={age}
+                    onChange={(e) => setAge(Number(e.target.value))}
+                    className="bg-[#10131a] border border-[#2a2f3a] px-4 py-3 rounded-lg"
+                  />
 
-          <p className="text-gray-400">
-            No patients added yet
-          </p>
-
-        ) : (
-
-          <div className="overflow-x-auto">
-
-            <table className="w-full">
-
-              <thead>
-
-                <tr className="border-b text-left text-gray-600">
-
-                  <th className="py-2">ID</th>
-                  <th className="py-2">Name</th>
-                  <th className="py-2">Age</th>
-                  <th className="py-2">Gender</th>
-
-                </tr>
-
-              </thead>
-
-              <tbody>
-
-                {patients.map((p) => (
-
-                  <tr
-                    key={p.id}
-                    className="border-b hover:bg-gray-50"
+                  <select
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    className="bg-[#10131a] border border-[#2a2f3a] px-4 py-3 rounded-lg"
                   >
+                    <option>Male</option>
+                    <option>Female</option>
+                  </select>
 
-                    <td className="py-2">{p.id}</td>
+                </div>
 
-                    <td className="py-2 font-medium">
-                      {p.name}
-                    </td>
+                <button
+                  onClick={addPatient}
+                  disabled={loading}
+                  className="w-full py-3 rounded-full bg-gradient-to-r from-[#afc6ff] to-[#528dff] font-bold hover:scale-105 transition shadow-[0_0_20px_rgba(175,198,255,0.4)] text-gray-900"
+                >
+                  {loading ? "Adding..." : "Add Patient"}
+                </button>
 
-                    <td className="py-2">{p.age}</td>
+              </div>
 
-                    <td className="py-2">{p.gender}</td>
-
-                  </tr>
-
-                ))}
-
-              </tbody>
-
-            </table>
+            </div>
 
           </div>
 
-        )}
+          {/* 📊 PATIENT TABLE */}
+          <div className="col-span-12 lg:col-span-8">
+
+            <div className="bg-[#1d2026]/60 backdrop-blur-xl border border-[#2a2f3a] rounded-2xl overflow-hidden">
+
+              <div className="p-6 flex justify-between items-center">
+                <h3 className="text-xl font-bold">
+                  Patient Directory
+                </h3>
+
+                <span className="text-sm text-[#8c90a0]">
+                  {patients.length} records
+                </span>
+              </div>
+
+              {patients.length === 0 ? (
+                <p className="p-6 text-[#8c90a0]">
+                  No patients yet
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+
+                  <table className="w-full">
+
+                    <thead>
+                      <tr className="text-left text-[#8c90a0] text-xs uppercase border-b border-[#2a2f3a]">
+                        <th className="px-6 py-3">ID</th>
+                        <th className="px-6 py-3">Name</th>
+                        <th className="px-6 py-3">Age</th>
+                        <th className="px-6 py-3">Gender</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {patients.map((p) => (
+                        <tr
+                          key={p.id}
+                          className="border-b border-[#2a2f3a] hover:bg-[#272a31]/50 transition"
+                        >
+                          <td className="px-6 py-4 text-[#afc6ff] font-mono">
+                            #{p.id}
+                          </td>
+
+                          <td className="px-6 py-4 font-semibold">
+                            {p.name}
+                          </td>
+
+                          <td className="px-6 py-4">
+                            {p.age}
+                          </td>
+
+                          <td className="px-6 py-4">
+                            {p.gender}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+
+                  </table>
+
+                </div>
+              )}
+
+            </div>
+
+          </div>
+
+        </div>
 
       </div>
-
     </div>
-
   );
-
 }
 
 export default PatientsPage;

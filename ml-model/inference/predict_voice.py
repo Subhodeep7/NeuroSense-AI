@@ -28,12 +28,15 @@ SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
 # LOAD MODELS
 # =========================
 
-rf_model = joblib.load(RF_PATH)
-xgb_model = joblib.load(XGB_PATH)
-svm_model = joblib.load(SVM_PATH)
-lr_model = joblib.load(LR_PATH)
-
-scaler = joblib.load(SCALER_PATH)
+try:
+    rf_model = joblib.load(RF_PATH)
+    xgb_model = joblib.load(XGB_PATH)
+    svm_model = joblib.load(SVM_PATH)
+    lr_model = joblib.load(LR_PATH)
+    scaler = joblib.load(SCALER_PATH)
+except Exception as e:
+    # Models might not be trained yet
+    pass
 
 
 # =========================
@@ -43,23 +46,27 @@ scaler = joblib.load(SCALER_PATH)
 def extract_features(audio_path):
 
     y, sr = librosa.load(audio_path, sr=None)
-
     y = librosa.util.normalize(y)
 
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
     mfcc_mean = np.mean(mfcc, axis=1)
     mfcc_std = np.std(mfcc, axis=1)
 
+    delta = librosa.feature.delta(mfcc)
+    delta_mean = np.mean(delta, axis=1)
+    delta_std = np.std(delta, axis=1)
+
     chroma = librosa.feature.chroma_stft(y=y, sr=sr)
     chroma_mean = np.mean(chroma, axis=1)
 
-    contrast = librosa.feature.spectral_contrast(
-        y=y,
-        sr=sr,
-        n_bands=5,
-        fmin=200.0
-    )
+    contrast = librosa.feature.spectral_contrast(y=y, sr=sr, n_bands=5, fmin=200.0)
     contrast_mean = np.mean(contrast, axis=1)
+
+    centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
+    centroid_mean = np.mean(centroid)
+
+    bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
+    bandwidth_mean = np.mean(bandwidth)
 
     zcr = librosa.feature.zero_crossing_rate(y)
     zcr_mean = np.mean(zcr)
@@ -67,13 +74,33 @@ def extract_features(audio_path):
     rms = librosa.feature.rms(y=y)
     rms_mean = np.mean(rms)
 
+    # Pitch, Jitter, Shimmer proxies
+    f0, voiced_flag, voiced_probs = librosa.pyin(y, fmin=50, fmax=300)
+    if f0 is not None and np.any(voiced_flag):
+        f0_voiced = f0[voiced_flag]
+        pitch_mean = np.nanmean(f0_voiced)
+        pitch_std = np.nanstd(f0_voiced)
+        
+        if len(f0_voiced) > 1:
+            jitter = np.mean(np.abs(np.diff(f0_voiced))) / pitch_mean
+        else:
+            jitter = 0
+    else:
+        pitch_mean = 0
+        pitch_std = 0
+        jitter = 0
+
+    rms_voiced = rms[0][:len(voiced_flag)][voiced_flag] if f0 is not None else rms[0]
+    if len(rms_voiced) > 1 and np.mean(rms_voiced) > 0:
+        shimmer = np.mean(np.abs(np.diff(rms_voiced))) / np.mean(rms_voiced)
+    else:
+        shimmer = 0
+
     features = np.concatenate([
-        mfcc_mean,
-        mfcc_std,
-        chroma_mean,
-        contrast_mean,
-        [zcr_mean],
-        [rms_mean]
+        mfcc_mean, mfcc_std, delta_mean, delta_std,
+        chroma_mean, contrast_mean,
+        [centroid_mean, bandwidth_mean, zcr_mean, rms_mean],
+        [pitch_mean, pitch_std, jitter, shimmer]
     ])
 
     return features.reshape(1, -1)
@@ -165,9 +192,6 @@ if __name__ == "__main__":
         print(json.dumps(result))
 
     except Exception as e:
-
-        traceback.print_exc()
-
         print(json.dumps({
             "model": "voice",
             "prediction": -1,

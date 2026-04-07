@@ -1,214 +1,153 @@
 import os
+import cv2
 import numpy as np
-import librosa
-import joblib
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+from PIL import Image
 
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
-
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.linear_model import LogisticRegression
-
-from xgboost import XGBClassifier
-
-
-DATASET_PATH = "voice_dataset"
+DATASET_PATH = "handwriting_dataset"
 SAVE_PATH = "../saved-model"
-
 os.makedirs(SAVE_PATH, exist_ok=True)
 
+# =========================
+# IMAGE PREPROCESSING
+# =========================
+def preprocess_image_cv(image_path):
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if img is None: return None
+    
+    # 1. Resize
+    img = cv2.resize(img, (128, 128))
+    
+    # 2. Adaptive Thresholding (emphasizes stroke variations)
+    thresh = cv2.adaptiveThreshold(
+        img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
+    )
+    
+    # 3. Morphological operations (tremor/curvature enhancement)
+    kernel = np.ones((3,3), np.uint8)
+    processed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    
+    return Image.fromarray(processed)
 
 # =========================
-# HIGH ACCURACY FEATURE EXTRACTION
+# DATASET CLASS
 # =========================
+class SpiralDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.samples = []
+        
+        for label, class_name in enumerate(["healthy", "parkinsons"]):
+            class_dir = os.path.join(root_dir, class_name)
+            if not os.path.exists(class_dir): continue
+            for file in os.listdir(class_dir):
+                if file.endswith(('.png', '.jpg', '.jpeg')):
+                    self.samples.append((os.path.join(class_dir, file), label))
+                    
+    def __len__(self):
+        return len(self.samples)
 
-def extract_features(audio_path):
-
-    y, sr = librosa.load(audio_path, sr=None)
-    y = librosa.util.normalize(y)
-
-    # MFCC
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-    mfcc_mean = np.mean(mfcc, axis=1)
-    mfcc_std = np.std(mfcc, axis=1)
-
-    # MFCC DELTA (NEW)
-    delta = librosa.feature.delta(mfcc)
-    delta_mean = np.mean(delta, axis=1)
-    delta_std = np.std(delta, axis=1)
-
-    # Chroma
-    chroma = librosa.feature.chroma_stft(y=y, sr=sr)
-    chroma_mean = np.mean(chroma, axis=1)
-
-    # Spectral contrast
-    contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
-    contrast_mean = np.mean(contrast, axis=1)
-
-    # Spectral centroid (NEW)
-    centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
-    centroid_mean = np.mean(centroid)
-
-    # Spectral bandwidth (NEW)
-    bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
-    bandwidth_mean = np.mean(bandwidth)
-
-    # ZCR
-    zcr = librosa.feature.zero_crossing_rate(y)
-    zcr_mean = np.mean(zcr)
-
-    # RMS
-    rms = librosa.feature.rms(y=y)
-    rms_mean = np.mean(rms)
-
-    return np.concatenate([
-        mfcc_mean,
-        mfcc_std,
-        delta_mean,
-        delta_std,
-        chroma_mean,
-        contrast_mean,
-        [centroid_mean],
-        [bandwidth_mean],
-        [zcr_mean],
-        [rms_mean]
-    ])
-
+    def __getitem__(self, idx):
+        path, label = self.samples[idx]
+        img = preprocess_image_cv(path)
+        if img is None:
+            # Fallback black image
+            img = Image.fromarray(np.zeros((128, 128), dtype=np.uint8))
+            
+        if self.transform:
+            img = self.transform(img)
+            
+        return img, label
 
 # =========================
-# LOAD DATASET
+# CNN MODEL
 # =========================
+class CNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, 32, 3),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            
+            nn.Conv2d(32, 64, 3),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            
+            nn.Conv2d(64, 128, 3),
+            nn.ReLU(),
+            nn.MaxPool2d(2)
+        )
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(128 * 14 * 14, 128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, 2)
+        )
 
-X = []
-y = []
-
-print("Extracting features...")
-
-for label in ["healthy", "parkinsons"]:
-
-    folder = os.path.join(DATASET_PATH, label)
-
-    for file in os.listdir(folder):
-
-        if file.endswith(".wav"):
-
-            path = os.path.join(folder, file)
-
-            features = extract_features(path)
-
-            X.append(features)
-
-            y.append(0 if label == "healthy" else 1)
-
-
-X = np.array(X)
-y = np.array(y)
-
-print("Dataset size:", len(X))
-
+    def forward(self, x):
+        return self.fc(self.conv(x))
 
 # =========================
-# SCALE
+# TRAINING SCRIPT
 # =========================
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5], std=[0.5])
+])
 
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+dataset = SpiralDataset(DATASET_PATH, transform=transform)
 
+if len(dataset) == 0:
+    print("No handwriting data found! Skipping training.")
+    exit()
 
-# =========================
-# SPLIT
-# =========================
+train_size = int(0.8 * len(dataset))
+test_size = len(dataset) - train_size
+train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled,
-    y,
-    test_size=0.2,
-    stratify=y,
-    random_state=42
-)
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
+model = CNN()
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# =========================
-# MODELS
-# =========================
+epochs = 10
+print("Training Handwriting CNN...")
 
-rf_model = RandomForestClassifier(
-    n_estimators=1000,
-    class_weight="balanced",
-    random_state=42,
-    n_jobs=-1
-)
+for epoch in range(epochs):
+    model.train()
+    running_loss = 0.0
+    for images, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+        
+    print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(train_loader):.4f}")
 
-xgb_model = XGBClassifier(
-    n_estimators=1000,
-    learning_rate=0.01,
-    max_depth=6,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    eval_metric="logloss",
-    random_state=42,
-    n_jobs=-1
-)
+# Evaluation
+model.eval()
+correct = 0
+total = 0
+with torch.no_grad():
+    for images, labels in test_loader:
+        outputs = model(images)
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
 
-svm_model = SVC(
-    kernel="rbf",
-    probability=True,
-    class_weight="balanced",
-    C=10
-)
+if total > 0:
+    print(f"Test Accuracy: {100 * correct / total:.2f}%")
 
-lr_model = LogisticRegression(
-    max_iter=2000,
-    class_weight="balanced"
-)
-
-
-# =========================
-# TRAIN
-# =========================
-
-print("Training models...")
-
-rf_model.fit(X_train, y_train)
-xgb_model.fit(X_train, y_train)
-svm_model.fit(X_train, y_train)
-lr_model.fit(X_train, y_train)
-
-
-# =========================
-# TEST ACCURACY
-# =========================
-
-print("\nTest Accuracy:")
-
-print("RF:", accuracy_score(y_test, rf_model.predict(X_test)))
-print("XGB:", accuracy_score(y_test, xgb_model.predict(X_test)))
-print("SVM:", accuracy_score(y_test, svm_model.predict(X_test)))
-print("LR:", accuracy_score(y_test, lr_model.predict(X_test)))
-
-
-# =========================
-# CROSS VALIDATION (REAL ACCURACY)
-# =========================
-
-print("\nCross Validation Accuracy:")
-
-print("RF CV:", cross_val_score(rf_model, X_scaled, y, cv=5).mean())
-print("XGB CV:", cross_val_score(xgb_model, X_scaled, y, cv=5).mean())
-print("SVM CV:", cross_val_score(svm_model, X_scaled, y, cv=5).mean())
-print("LR CV:", cross_val_score(lr_model, X_scaled, y, cv=5).mean())
-
-
-# =========================
-# SAVE
-# =========================
-
-joblib.dump(rf_model, SAVE_PATH + "/rf_model.pkl")
-joblib.dump(xgb_model, SAVE_PATH + "/xgb_model.pkl")
-joblib.dump(svm_model, SAVE_PATH + "/svm_model.pkl")
-joblib.dump(lr_model, SAVE_PATH + "/lr_model.pkl")
-joblib.dump(scaler, SAVE_PATH + "/scaler.pkl")
-
-print("\nAll models saved successfully")
+torch.save(model.state_dict(), os.path.join(SAVE_PATH, "handwriting_model.pth"))
+print("Model saved to", os.path.join(SAVE_PATH, "handwriting_model.pth"))

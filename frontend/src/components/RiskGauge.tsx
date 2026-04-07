@@ -1,4 +1,3 @@
-import React from "react";
 
 interface Props {
   risk: number; // value between 0 and 1

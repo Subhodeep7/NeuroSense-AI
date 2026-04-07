@@ -28,6 +28,14 @@ public class Prediction {
 
     private Double handwritingConfidence;
 
+    private Double gaitConfidence;
+
+    private Double tremorConfidence;
+
+    private Double visualConfidence;
+
+    private Integer reactionTimeMs;
+
     private Integer finalPrediction;
 
     private Double finalRisk;
