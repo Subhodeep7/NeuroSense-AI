@@ -38,8 +38,8 @@ export default function MotionCapture({ type, onCapture }: Props) {
   const icon = type === "gait" ? "directions_walk" : "vibration";
 
   const instructions = type === "gait"
-    ? "Strap the device to your knee cap. Stand up, then press the button on the device. Walk normally for 30 seconds."
-    : "Strap the device to your wrist. Sit still with your hand resting on the table. Press the button on the device.";
+    ? "Wear the device on your ankle. Stand up and press the button on the device, then walk normally for 30 seconds."
+    : "Wear the device on your wrist. Sit still, rest your hand on a flat surface, then press the button and stay relaxed for 15 seconds.";
 
   const phoneInstructions = type === "gait"
     ? "Hold your phone in your hand or pocket and walk normally for 30 seconds."
@@ -159,6 +159,12 @@ export default function MotionCapture({ type, onCapture }: Props) {
       {/* ── WEARABLE TAB ── */}
       {tab === "wearable" && (
         <div className="space-y-4">
+          {/* Same device notice */}
+          <div className="flex items-center gap-2 text-[10px] text-[#afc6ff]/70 bg-[#afc6ff]/5 border border-[#afc6ff]/20 rounded-lg px-3 py-1.5">
+            <span className="material-symbols-outlined text-[14px]">info</span>
+            <span>It's the <strong className="text-[#afc6ff]">same ESP32 device</strong> — just worn differently for each test.</span>
+          </div>
+
           <div className="bg-[#10131a] rounded-lg p-3 text-xs leading-relaxed text-[#8c90a0] border border-[#2a2f3a]">
             {instructions}
           </div>
@@ -167,7 +173,7 @@ export default function MotionCapture({ type, onCapture }: Props) {
             <div className="text-2xl pt-1"><span className="material-symbols-outlined text-[#afc6ff]">router</span></div>
             <div>
               <p className="font-semibold text-white">ESP32 Node</p>
-              <p className="mt-1">WiFi POSTs natively to backend.</p>
+              <p className="mt-1">Sends data over WiFi automatically after capture.</p>
               <div className="flex gap-2 mt-2">
                 <span className="bg-[#afc6ff]/20 text-[#afc6ff] px-1.5 py-0.5 rounded">Ready</span>
                 <span className="bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">Capturing</span>

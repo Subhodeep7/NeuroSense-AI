@@ -15,6 +15,32 @@ export async function getPredictionHistory(patientId: number): Promise<Predictio
     return [];
 }
 
+/** Single most-recent prediction across all patients — used by the dashboard. */
+export async function getLatestPrediction(): Promise<Prediction | null> {
+    try {
+        const response = await axios.get(`${BASE_URL}/predictions/latest`);
+        return response.data ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/** Total count of all predictions — used by the dashboard. */
+export async function getTotalPredictions(): Promise<number> {
+    try {
+        const response = await axios.get(`${BASE_URL}/predictions/count`);
+        return typeof response.data === "number" ? response.data : 0;
+    } catch {
+        return 0;
+    }
+}
+
+/** All predictions sorted newest-first — used by the History page. */
+export async function getAllPredictions(): Promise<any[]> {
+    const response = await axios.get(`${BASE_URL}/predictions/all`);
+    return Array.isArray(response.data) ? response.data : [];
+}
+
 export async function uploadAudio(file: File, patientId: number) {
     const formData = new FormData();
     formData.append("file", file);
@@ -33,18 +59,18 @@ export async function predictFull(
     patientId: number
 ) {
     const formData = new FormData();
-    
-    if (voiceFile)        formData.append("voiceFile", voiceFile);
-    if (handwritingFile)  formData.append("handwritingFile", handwritingFile);
-    if (reactionTimeMs)   formData.append("reactionTimeMs", reactionTimeMs.toString());
-    if (videoFile)        formData.append("videoFile", videoFile);
+
+    if (voiceFile)       formData.append("voiceFile", voiceFile);
+    if (handwritingFile) formData.append("handwritingFile", handwritingFile);
+    if (reactionTimeMs)  formData.append("reactionTimeMs", reactionTimeMs.toString());
+    if (videoFile)       formData.append("videoFile", videoFile);
     formData.append("patientId", patientId.toString());
 
     if (gaitFile) {
         const text = await gaitFile.text();
         formData.append("gaitData", text);
     }
-    
+
     if (tremorFile) {
         const text = await tremorFile.text();
         formData.append("tremorData", text);

@@ -25,46 +25,62 @@ public class VoicePredictionService {
                     audioPath
             );
 
-            pb.redirectErrorStream(true);
+            // Do NOT merge stderr into stdout — Python warnings (e.g. file-path
+            // deprecation warnings starting with "C:\...") would corrupt the JSON.
+            pb.redirectErrorStream(false);
 
             Process process = pb.start();
 
+            // Drain stderr on a background thread so the process doesn't block.
+            Thread stderrDrainer = new Thread(() -> {
+                try (BufferedReader errReader = new BufferedReader(
+                        new InputStreamReader(process.getErrorStream()))) {
+                    String errLine;
+                    while ((errLine = errReader.readLine()) != null) {
+                        System.err.println("VOICE MODEL STDERR: " + errLine);
+                    }
+                } catch (Exception ignored) {}
+            });
+            stderrDrainer.setDaemon(true);
+            stderrDrainer.start();
+
+            // Read only stdout for JSON parsing.
             BufferedReader reader =
                     new BufferedReader(
-                            new InputStreamReader(
-                                    process.getInputStream()
-                            )
+                            new InputStreamReader(process.getInputStream())
                     );
 
-            StringBuilder outputBuilder = new StringBuilder();
-
+            String jsonLine = null;
             String line;
 
             while ((line = reader.readLine()) != null) {
-
                 System.out.println("VOICE MODEL OUTPUT: " + line);
 
-                outputBuilder.append(line);
-
+                // Safety net: find the first line that looks like a JSON object,
+                // in case any non-JSON noise ever reaches stdout.
+                if (jsonLine == null && line.trim().startsWith("{")) {
+                    jsonLine = line.trim();
+                }
             }
 
             process.waitFor();
+            stderrDrainer.join(2000);
 
-            String output = outputBuilder.toString();
+            if (jsonLine == null) {
+                throw new RuntimeException("No JSON output found from voice model");
+            }
 
             ObjectMapper mapper = new ObjectMapper();
 
-            Map<String, Object> result =
-                    mapper.readValue(output, Map.class);
+            Map<String, Object> result = mapper.readValue(jsonLine, Map.class);
 
             return result;
 
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
 
             e.printStackTrace();
 
-            throw new RuntimeException("Voice prediction failed");
+            throw new RuntimeException("Voice prediction failed: " + e.getMessage());
 
         }
 

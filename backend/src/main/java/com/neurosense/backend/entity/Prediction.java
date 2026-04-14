@@ -1,9 +1,9 @@
 package com.neurosense.backend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
-import com.fasterxml.jackson.annotation.JsonBackReference;
 
 @Entity
 @Table(name = "predictions")
@@ -42,8 +42,11 @@ public class Prediction {
 
     private LocalDateTime createdAt;
 
-    @JsonBackReference
-    @ManyToOne
+    // @JsonIgnore prevents Jackson from serializing the patient (avoids proxy crash).
+    // FetchType.EAGER ensures pred.getPatient() is always available when the
+    // controller manually extracts patient info — no LazyInitializationException.
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "patient_id")
     private Patient patient;
 

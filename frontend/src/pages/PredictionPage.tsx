@@ -6,6 +6,7 @@ import VideoRecorder from "../components/VideoRecorder";
 import MotionCapture from "../components/MotionCapture";
 import { getAllPatients, predictFull } from "../api/predictionApi";
 import type { Patient } from "../types/prediction";
+import { generateReport } from "../utils/generateReport";
 
 function PredictionPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -201,16 +202,25 @@ function PredictionPage() {
             </h2>
 
             <div className="grid grid-cols-3 gap-4 mb-6">
-              {Object.entries(result).map(([key, val]: any) =>
-                val?.confidence ? (
+              {[
+                { key: "voiceConfidence",       label: "Voice",       icon: "mic" },
+                { key: "handwritingConfidence", label: "Handwriting", icon: "edit" },
+                { key: "gaitConfidence",        label: "Gait",        icon: "directions_walk" },
+                { key: "tremorConfidence",      label: "Tremor",      icon: "vibration" },
+                { key: "visualConfidence",      label: "Visual",      icon: "visibility" },
+              ].map(({ key, label, icon }) => {
+                const val = result[key];
+                if (val == null) return null;
+                const pct = (val * 100).toFixed(1);
+                const color = val >= 0.75 ? "#ff4d4f" : val >= 0.5 ? "#f59e0b" : "#10b981";
+                return (
                   <div key={key} className="p-4 bg-[#10131a] rounded-xl text-center">
-                    <p className="text-xs text-[#8c90a0]">{key}</p>
-                    <p className="font-bold text-[#afc6ff]">
-                      {(val.confidence * 100).toFixed(1)}%
-                    </p>
+                    <span className="material-symbols-outlined text-sm" style={{ color }}>{icon}</span>
+                    <p className="text-xs text-[#8c90a0] mt-1">{label}</p>
+                    <p className="font-bold text-lg mt-1" style={{ color }}>{pct}%</p>
                   </div>
-                ) : null
-              )}
+                );
+              })}
             </div>
 
             <RiskGauge risk={result.finalRisk} level={result.riskLevel} />
@@ -219,6 +229,20 @@ function PredictionPage() {
               <span className="px-4 py-2 rounded-full bg-[#afc6ff]/10 text-[#afc6ff] font-bold">
                 {result.riskLevel} — {(result.finalRisk * 100).toFixed(1)}%
               </span>
+            </div>
+
+            {/* ⬇️ Download Report Button */}
+            <div className="mt-8 flex justify-center">
+              <button
+                onClick={() => {
+                  const patient = patients.find(p => p.id === selectedPatient);
+                  if (patient) generateReport(patient, result);
+                }}
+                className="flex items-center gap-2 px-8 py-3 rounded-full bg-gradient-to-r from-[#afc6ff] to-[#528dff] text-gray-900 font-bold text-sm hover:scale-105 transition shadow-[0_0_20px_rgba(175,198,255,0.4)]"
+              >
+                <span className="material-symbols-outlined text-[18px]">download</span>
+                Download Clinical Report
+              </button>
             </div>
 
           </div>
