@@ -1,21 +1,28 @@
 package com.neurosense.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.util.Map;
 
 @Service
 public class VisualPredictionService {
 
-    private static final String SCRIPT_PATH =
-            "C:/Users/mitra/Documents/NeuroSense-AI/ml-model/inference/visual_analysis.py";
+    private static final String SCRIPT_PATH = "ml-model/inference/visual_analysis.py";
+
+    @Value("${app.project.dir}")
+    private String projectDir;
 
     public Map<String, Object> predict(String videoFilePath) {
         try {
             ProcessBuilder pb = new ProcessBuilder("python", SCRIPT_PATH, videoFilePath);
+
+            // Set working directory to project root so relative script path resolves correctly
+            pb.directory(new File(projectDir));
 
             // Do NOT merge stderr into stdout — Python warnings would corrupt the JSON.
             pb.redirectErrorStream(false);

@@ -1,9 +1,11 @@
 package com.neurosense.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.util.Map;
 
@@ -11,9 +13,10 @@ import java.util.Map;
 public class VoicePredictionService {
 
     private static final String PYTHON_COMMAND = "python";
+    private static final String SCRIPT_PATH    = "ml-model/inference/predict_voice.py";
 
-    private static final String SCRIPT_PATH =
-            "ml-model/inference/predict_voice.py";
+    @Value("${app.project.dir}")
+    private String projectDir;
 
     public Map<String, Object> predict(String audioPath) {
 
@@ -25,8 +28,10 @@ public class VoicePredictionService {
                     audioPath
             );
 
-            // Do NOT merge stderr into stdout — Python warnings (e.g. file-path
-            // deprecation warnings starting with "C:\...") would corrupt the JSON.
+            // Set working directory to project root so relative script path resolves correctly
+            pb.directory(new File(projectDir));
+
+            // Do NOT merge stderr into stdout — Python warnings could corrupt the JSON.
             pb.redirectErrorStream(false);
 
             Process process = pb.start();
@@ -56,8 +61,6 @@ public class VoicePredictionService {
             while ((line = reader.readLine()) != null) {
                 System.out.println("VOICE MODEL OUTPUT: " + line);
 
-                // Safety net: find the first line that looks like a JSON object,
-                // in case any non-JSON noise ever reaches stdout.
                 if (jsonLine == null && line.trim().startsWith("{")) {
                     jsonLine = line.trim();
                 }
@@ -71,15 +74,11 @@ public class VoicePredictionService {
             }
 
             ObjectMapper mapper = new ObjectMapper();
-
-            Map<String, Object> result = mapper.readValue(jsonLine, Map.class);
-
-            return result;
+            return mapper.readValue(jsonLine, Map.class);
 
         } catch (Exception e) {
 
             e.printStackTrace();
-
             throw new RuntimeException("Voice prediction failed: " + e.getMessage());
 
         }
