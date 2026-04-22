@@ -237,9 +237,16 @@ if __name__ == "__main__":
         print(json.dumps(result))
 
     except Exception as e:
+        error_msg = str(e) if str(e) else type(e).__name__
+        # Provide helpful message for the most common failure mode
+        if "NoBackendError" in error_msg or "NoBackendError" in type(e).__name__:
+            error_msg = (
+                "Cannot read audio file — no compatible backend found. "
+                "File may be in WebM/Opus format. Please upload a standard .wav file."
+            )
         print(json.dumps({
             "model": "voice",
             "prediction": -1,
             "confidence": 0,
-            "error": str(e)
+            "error": error_msg
         }))
