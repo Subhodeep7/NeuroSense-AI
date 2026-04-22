@@ -1,9 +1,24 @@
+# NeuroSense-AI — Python ML Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Deep Learning ──────────────────────────────────────────────
 torch
 torchvision
-numpy
-librosa
-joblib
+
+# ── Classical ML ───────────────────────────────────────────────
 scikit-learn
 xgboost
-pillow
+imbalanced-learn       # SMOTE for class balancing in voice training
+
+# ── Audio / Signal Processing ──────────────────────────────────
+librosa
 soundfile
+scipy                  # Butterworth filter, Welch PSD (gait + tremor)
+
+# ── Image / Video / Computer Vision ────────────────────────────
+pillow
+opencv-python          # visual_analysis.py (video frame processing)
+
+# ── Data & Utilities ───────────────────────────────────────────
+numpy
+joblib                 # model serialization (.pkl)
