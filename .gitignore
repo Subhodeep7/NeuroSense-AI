@@ -58,7 +58,8 @@ ml-model/training/gait_dataset/
 # ===========================
 # Uploads (runtime files)
 # ===========================
-uploads/
+# uploads/ contents are ignored via uploads/.gitignore
+# The directory itself is tracked so the app has a place to save files on clone
 
 # ===========================
 # Environment & Secrets
