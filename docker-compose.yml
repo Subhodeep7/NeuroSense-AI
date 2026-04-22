@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+
+  backend:
+    build: .
+    container_name: neurosense-backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/neurosense
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+
+  postgres:
+    image: postgres:15
+    container_name: neurosense-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: neurosense
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"

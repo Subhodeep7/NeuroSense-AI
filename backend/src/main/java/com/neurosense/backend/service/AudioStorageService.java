@@ -10,7 +10,7 @@ import java.util.UUID;
 public class AudioStorageService {
 
     private final String uploadDir =
-            "C:/Users/mitra/Documents/NeuroSense-AI/uploads/";
+            "uploads/";
 
     public String store(MultipartFile file) throws Exception {
 
