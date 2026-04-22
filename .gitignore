@@ -1,26 +1,102 @@
-# Java
+# ===========================
+# Java / Spring Boot
+# ===========================
 target/
 *.class
 *.jar
 *.log
+*.war
+*.nar
+*.ear
+*.zip
+*.gz
+.mvn/
+mvnw
+mvnw.cmd
 
-# Node
+# ===========================
+# Node / React / Frontend
+# ===========================
 node_modules/
 dist/
 build/
+.next/
+.cache/
+*.local
 
-# Python
+# ===========================
+# Python / ML
+# ===========================
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 venv/
+.venv/
+env/
+.env/
+*.egg-info/
+.pytest_cache/
 
-# Environment
+# ML Model artifacts — exclude training outputs but KEEP saved-model/ (needed for inference)
+# These are stored in ml-model/saved-model/ which is explicitly tracked
+# *.pkl  ← intentionally NOT excluded (saved models are needed)
+# *.pth  ← intentionally NOT excluded (handwriting_model.pth is needed)
+*.h5
+*.onnx
+*.bin
+
+# Training logs & temp scripts
+ml-model/training/training_log.txt
+ml-model/training/scan_healthy_folder.py
+
+# Training datasets (raw images/audio — too large for git)
+ml-model/training/handwriting_dataset/
+ml-model/training/voice_dataset/
+ml-model/training/gait_dataset/
+
+# ===========================
+# Uploads (runtime files)
+# ===========================
+uploads/
+
+# ===========================
+# Environment & Secrets
+# ===========================
 .env
+.env.local
+.env.production
+.env.staging
+*.env
 
-# IDE
+# ===========================
+# IDE & Editor
+# ===========================
 .idea/
 .vscode/
+*.iml
+*.iws
+*.ipr
 
-# OS
+# ===========================
+# OS Generated
+# ===========================
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===========================
+# Docker (keep compose/Dockerfile)
+# ===========================
+# docker volumes and runtime state
+.docker/
+
+# ===========================
+# Misc
+# ===========================
+*.swp
+*.swo
+*~
