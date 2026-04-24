@@ -1,5 +1,5 @@
 /**
- * NeuroSense-AI — ESP32 Wearable Knee-Cap Sensor Node
+ * NeuroSense-AI — ESP32 Wearable Wrist Sensor Node (Rest Tremor)
  * ─────────────────────────────────────────────────────
  * Hardware:
  *   - ESP32 (any variant — WROOM, S2, S3)
@@ -9,13 +9,15 @@
  *   - Red LED    (GPIO 4  — external)
  *   - LiPo Battery via TP4056 charging module (optional)
  *
- * Operation (standalone, no laptop needed):
+ * This device handles REST TREMOR only.
+ * Gait analysis is done via phone sensor or video upload — no wearable needed.
+ *
+ * Operation:
  *   1. Power on → connects to WiFi automatically
  *   2. Solid GREEN = ready
- *   3. Press button → RED blinks = capturing
- *   4. Capture ends automatically → data POSTs to backend
- *   5. GREEN flashes 3×  = success | RED solid 3s = error
- *   6. Returns to ready state
+ *   3. Press button → RED blinks = capturing 15s
+ *   4. Capture ends → data POSTs to backend
+ *   5. GREEN flashes 3× = success | RED solid 3s = error
  *
  * Dependencies (Arduino Library Manager):
  *   - Adafruit MPU6050
@@ -32,19 +34,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // USER CONFIGURATION — edit before flashing
 // ─────────────────────────────────────────────────────────────────────────────
-const char* WIFI_SSID     = "YourWiFiName";
-const char* WIFI_PASSWORD = "YourWiFiPassword";
+const char* WIFI_SSID     = "Neurosense";      // ← your hotspot name
+const char* WIFI_PASSWORD = "wqyl2463";         // ← your password
+const char* BACKEND_HOST  = "10.83.97.222";     // ← your PC's current IP
+
 
 // Your PC's local IP address (run `ipconfig` in Windows CMD)
 // ESP32 and PC must be on the same WiFi network
-const char* BACKEND_HOST  = "192.168.1.100";
+
 const int   BACKEND_PORT  = 8080;
 
 // Patient ID — set this before strapping on the device
 const int   PATIENT_ID    = 1;
 
-// Mode: "gait" (knee-cap, 30s walking) or "tremor" (wrist, 15s resting)
-const char* CAPTURE_MODE  = "gait";
+// Mode: TREMOR ONLY — gait uses phone sensor/video, not this wearable
+const char* CAPTURE_MODE  = "tremor";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Hardware pins
@@ -105,23 +109,43 @@ void setup() {
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   Serial.println("MPU6050 OK");
 
-  // Connect to WiFi
-  Serial.printf("WiFi: %s ...", WIFI_SSID);
+  // Connect to WiFi — disconnect first to clear stale state (fixes hotspot failures)
+  WiFi.disconnect(true);
+  delay(200);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  Serial.printf("WiFi: connecting to %s ...", WIFI_SSID);
   int tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < 40) {
+  while (WiFi.status() != WL_CONNECTED && tries < 60) {  // 30s max
     delay(500); Serial.print(".");
-    digitalWrite(PIN_LED_GREEN, !digitalRead(PIN_LED_GREEN)); // blink while connecting
+    digitalWrite(PIN_LED_GREEN, !digitalRead(PIN_LED_GREEN));
     tries++;
   }
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nWiFi FAILED!");
+    Serial.println("\n[ERROR] WiFi FAILED — check SSID, password, and 2.4GHz band!");
     while (1) { flashRed(3); delay(2000); }
   }
-  Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("\n[OK] Connected. IP: %s\n", WiFi.localIP().toString().c_str());
+
+  // Ping backend to verify connectivity before any capture
+  HTTPClient ping;
+  ping.begin(String("http://") + BACKEND_HOST + ":" + BACKEND_PORT + "/api/sensor/ping");
+  int pingCode = ping.GET();
+  ping.end();
+  if (pingCode == 200) {
+    Serial.println("[OK] Backend reachable.");
+  } else {
+    Serial.printf("[WARN] Backend ping returned %d — check BACKEND_HOST IP!\n", pingCode);
+  }
 
   ledReady();
   Serial.printf("Ready. Mode: %s | Press button to start capture.\n", CAPTURE_MODE);
+
+  // Guard: warn if accidentally set to gait (not supported via wearable)
+  if (strcmp(CAPTURE_MODE, "tremor") != 0) {
+    Serial.println("[WARN] Only 'tremor' mode is supported. Gait uses phone/video.");
+  }
 }
 
 void loop() {
@@ -185,32 +209,63 @@ void runCapture() {
 bool sendData() {
   String url = String("http://") + BACKEND_HOST + ":" + BACKEND_PORT + "/api/sensor/ingest";
 
-  // Build JSON payload
-  String json = "{\"mode\":\"";
-  json += CAPTURE_MODE;
-  json += "\",\"patientId\":";
-  json += PATIENT_ID;
-  json += ",\"timestamps\":[";
+  // ── Compute features on-device ────────────────────────────────────────────
+  // Sending raw 3000-sample arrays (~85KB) crashes the ESP32 heap.
+  // Instead we compute summary statistics (ML models use these, not raw arrays).
+
+  float sum_ax=0, sum_ay=0, sum_az=0;
+  float sq_ax=0,  sq_ay=0,  sq_az=0;
+  float min_ax=ax_arr[0], max_ax=ax_arr[0];
+  float min_ay=ay_arr[0], max_ay=ay_arr[0];
+  float min_az=az_arr[0], max_az=az_arr[0];
+
   for (int i = 0; i < sampleCount; i++) {
-    json += ts_arr[i];
-    if (i < sampleCount - 1) json += ",";
+    sum_ax += ax_arr[i];  sq_ax += ax_arr[i]*ax_arr[i];
+    sum_ay += ay_arr[i];  sq_ay += ay_arr[i]*ay_arr[i];
+    sum_az += az_arr[i];  sq_az += az_arr[i]*az_arr[i];
+    if (ax_arr[i] < min_ax) min_ax = ax_arr[i]; if (ax_arr[i] > max_ax) max_ax = ax_arr[i];
+    if (ay_arr[i] < min_ay) min_ay = ay_arr[i]; if (ay_arr[i] > max_ay) max_ay = ay_arr[i];
+    if (az_arr[i] < min_az) min_az = az_arr[i]; if (az_arr[i] > max_az) max_az = az_arr[i];
   }
-  json += "],\"ax\":[";
-  for (int i = 0; i < sampleCount; i++) {
-    json += String(ax_arr[i], 3);
-    if (i < sampleCount - 1) json += ",";
+  float n = (float)sampleCount;
+  float mean_ax = sum_ax/n, mean_ay = sum_ay/n, mean_az = sum_az/n;
+  float std_ax  = sqrt(sq_ax/n - mean_ax*mean_ax);
+  float std_ay  = sqrt(sq_ay/n - mean_ay*mean_ay);
+  float std_az  = sqrt(sq_az/n - mean_az*mean_az);
+  float rms_ax  = sqrt(sq_ax/n);
+  float rms_ay  = sqrt(sq_ay/n);
+  float rms_az  = sqrt(sq_az/n);
+
+  // Step count: count positive zero-crossings on ay (vertical axis while walking)
+  int steps = 0;
+  for (int i = 1; i < sampleCount; i++) {
+    if (ay_arr[i-1] < mean_ay && ay_arr[i] >= mean_ay) steps++;
   }
-  json += "],\"ay\":[";
-  for (int i = 0; i < sampleCount; i++) {
-    json += String(ay_arr[i], 3);
-    if (i < sampleCount - 1) json += ",";
-  }
-  json += "],\"az\":[";
-  for (int i = 0; i < sampleCount; i++) {
-    json += String(az_arr[i], 3);
-    if (i < sampleCount - 1) json += ",";
-  }
-  json += "]}";
+  float duration_s = (ts_arr[sampleCount-1] - ts_arr[0]) / 1000.0;
+  float cadence    = (duration_s > 0) ? (steps / duration_s * 60.0) : 0;
+
+  // ── Build compact features JSON (~300 bytes, safe for ESP32 heap) ─────────
+  char json[512];
+  snprintf(json, sizeof(json),
+    "{\"mode\":\"%s\",\"patientId\":%d,"
+    "\"sample_count\":%d,\"duration_ms\":%ld,"
+    "\"mean_ax\":%.3f,\"mean_ay\":%.3f,\"mean_az\":%.3f,"
+    "\"std_ax\":%.3f,\"std_ay\":%.3f,\"std_az\":%.3f,"
+    "\"rms_ax\":%.3f,\"rms_ay\":%.3f,\"rms_az\":%.3f,"
+    "\"min_ax\":%.3f,\"max_ax\":%.3f,"
+    "\"min_ay\":%.3f,\"max_ay\":%.3f,"
+    "\"min_az\":%.3f,\"max_az\":%.3f,"
+    "\"step_count\":%d,\"cadence_spm\":%.1f}",
+    CAPTURE_MODE, PATIENT_ID,
+    sampleCount, ts_arr[sampleCount-1] - ts_arr[0],
+    mean_ax, mean_ay, mean_az,
+    std_ax,  std_ay,  std_az,
+    rms_ax,  rms_ay,  rms_az,
+    min_ax, max_ax, min_ay, max_ay, min_az, max_az,
+    steps, cadence
+  );
+
+  Serial.printf("[DEBUG] Payload (%d bytes): %s\n", strlen(json), json);
 
   HTTPClient http;
   http.begin(url);
@@ -220,6 +275,6 @@ bool sendData() {
   String resp = http.getString();
   http.end();
 
-  Serial.printf("HTTP %d: %s\n", code, resp.c_str());
+  Serial.printf("[HTTP] %d: %s\n", code, resp.c_str());
   return (code == 200);
 }

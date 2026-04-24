@@ -67,7 +67,7 @@ try:
     PoseLandmarkerOptions = mp_vision.PoseLandmarkerOptions
     VisionRunningMode = mp_vision.RunningMode
     MEDIAPIPE_AVAILABLE = True
-    print("[MediaPipe] Tasks API ready ✓", flush=True)
+    print("[MediaPipe] Tasks API ready [OK]", flush=True)
 
 except Exception as e:
     print(f"[MediaPipe] Unavailable ({e}), using OpenCV fallback", flush=True)

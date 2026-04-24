@@ -10,7 +10,6 @@ import type { Patient, Prediction } from "../types/prediction";
 const MODALITIES = [
   { key: "voiceConfidence",       label: "Voice",       icon: "mic" },
   { key: "handwritingConfidence", label: "Handwriting", icon: "edit" },
-  { key: "gaitConfidence",        label: "Gait",        icon: "directions_walk" },
   { key: "tremorConfidence",      label: "Tremor",      icon: "vibration" },
   { key: "visualConfidence",      label: "Visual",      icon: "visibility" },
 ] as const;

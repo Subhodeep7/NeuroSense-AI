@@ -67,7 +67,7 @@ public class PredictionController {
 
     // ── Prediction history for a specific patient ─────────────────────────────
     @GetMapping("/patients/{id}/predictions")
-    public List<Prediction> getPredictionHistory(@PathVariable Long id) {
+    public List<Prediction> getPredictionHistory(@PathVariable("id") Long id) {
         return predictionRepository.findByPatientId(id);
     }
 

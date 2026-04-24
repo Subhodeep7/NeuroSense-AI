@@ -52,7 +52,6 @@ export async function uploadAudio(file: File, patientId: number) {
 export async function predictFull(
     voiceFile: File | null,
     handwritingFile: File | null,
-    gaitFile: File | null,
     tremorFile: File | null,
     reactionTimeMs: number | null,
     videoFile: File | null,
@@ -65,11 +64,6 @@ export async function predictFull(
     if (reactionTimeMs)  formData.append("reactionTimeMs", reactionTimeMs.toString());
     if (videoFile)       formData.append("videoFile", videoFile);
     formData.append("patientId", patientId.toString());
-
-    if (gaitFile) {
-        const text = await gaitFile.text();
-        formData.append("gaitData", text);
-    }
 
     if (tremorFile) {
         const text = await tremorFile.text();

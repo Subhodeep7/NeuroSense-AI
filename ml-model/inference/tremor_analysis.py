@@ -11,68 +11,92 @@ def butter_highpass_filter(data, cutoff, fs, order=4):
     return y
 
 def analyze_tremor(data):
+    # ── Path A: raw arrays (full FFT pipeline) ─────────────────────────────
+    if 'timestamps' in data and 'ax' in data and len(data.get('ax', [])) >= 20:
+        try:
+            timestamps = np.array(data['timestamps'])
+            ax = np.array(data['ax'])
+            ay = np.array(data['ay'])
+            az = np.array(data['az'])
+
+            if len(timestamps) < 20:
+                return {"error": "Not enough data for FFT"}
+
+            duration_s = (timestamps[-1] - timestamps[0]) / 1000.0
+            fs = len(timestamps) / duration_s
+
+            acc_mag = np.sqrt(ax**2 + ay**2 + az**2)
+            if fs > 2:
+                acc_hp = butter_highpass_filter(acc_mag, cutoff=1.0, fs=fs, order=2)
+            else:
+                acc_hp = acc_mag - np.mean(acc_mag)
+
+            nperseg = min(256, len(acc_hp))
+            freqs, psd = welch(acc_hp, fs, nperseg=nperseg)
+            band_mask = (freqs >= 3.0) & (freqs <= 12.0)
+
+            if np.any(band_mask):
+                band_freqs = freqs[band_mask]
+                band_psd   = psd[band_mask]
+                max_idx        = np.argmax(band_psd)
+                dominant_freq  = band_freqs[max_idx]
+                max_amplitude  = band_psd[max_idx]
+            else:
+                dominant_freq = 0; max_amplitude = 0
+
+            is_parkinsons = 0; confidence = 0.0
+            if 4.0 <= dominant_freq <= 6.0 and max_amplitude > 0.5:
+                is_parkinsons = 1
+                confidence = min(0.95, 0.5 + (max_amplitude * 0.1))
+            else:
+                confidence = 0.8
+
+            return {
+                "model": "tremor", "source": "raw_arrays",
+                "dominant_freq": float(dominant_freq), "amplitude": float(max_amplitude),
+                "prediction": is_parkinsons, "confidence": float(confidence)
+            }
+        except Exception as e:
+            return {"error": str(e), "prediction": -1, "confidence": 0}
+
+    # ── Path B: pre-computed features from ESP32 compact payload ─────────────
+    # Without raw time-series, frequency resolution is unavailable.
+    # We use amplitude (RMS) and asymmetry as Parkinson's tremor proxies.
     try:
-        timestamps = np.array(data['timestamps'])
-        ax = np.array(data['ax'])
-        ay = np.array(data['ay'])
-        az = np.array(data['az'])
+        std_ax  = float(data.get('std_ax', 0))
+        std_ay  = float(data.get('std_ay', 0))
+        std_az  = float(data.get('std_az', 0))
+        rms_ax  = float(data.get('rms_ax', 0))
+        rms_ay  = float(data.get('rms_ay', 0))
+        rms_az  = float(data.get('rms_az', 0))
 
-        if len(timestamps) < 20:
-             return {"error": "Not enough data for FFT"}
-             
-        duration_s = (timestamps[-1] - timestamps[0]) / 1000.0
-        fs = len(timestamps) / duration_s
+        avg_rms = (rms_ax + rms_ay + rms_az) / 3.0 + 1e-6
+        avg_std = (std_ax + std_ay + std_az) / 3.0
 
-        # Use acceleration magnitude
-        acc_mag = np.sqrt(ax**2 + ay**2 + az**2)
+        # Amplitude asymmetry: strong asymmetry = unilateral tremor (PD sign)
+        max_rms    = max(rms_ax, rms_ay, rms_az)
+        amp_asymm  = max_rms / avg_rms         # >1.5 = one axis dominates
 
-        # High-pass filter > 1Hz to remove gravity
-        if fs > 2:
-            acc_hp = butter_highpass_filter(acc_mag, cutoff=1.0, fs=fs, order=2)
-        else:
-            acc_hp = acc_mag - np.mean(acc_mag)
+        # Tremor amplitude relative to gravity (9.81 m/s2)
+        # Resting PD tremor: avg_std ~0.3–1.5 m/s2
+        is_parkinsons = 0; confidence = 0.15
 
-        # FFT via Welch's method to find dominant frequency
-        # nperseg limits resolution, but stabilizes variance
-        nperseg = min(256, len(acc_hp))
-        freqs, psd = welch(acc_hp, fs, nperseg=nperseg)
-
-        # Find dominant frequency in the 3 to 12 Hz band
-        band_mask = (freqs >= 3.0) & (freqs <= 12.0)
-        
-        if np.any(band_mask):
-            band_freqs = freqs[band_mask]
-            band_psd = psd[band_mask]
-            
-            max_idx = np.argmax(band_psd)
-            dominant_freq = band_freqs[max_idx]
-            max_amplitude = band_psd[max_idx]
-        else:
-            dominant_freq = 0
-            max_amplitude = 0
-
-        # Parkinsonian Rest Tremor is typically 4-6 Hz
-        is_parkinsons = 0
-        confidence = 0.0
-
-        if 4.0 <= dominant_freq <= 6.0 and max_amplitude > 0.5:
+        if avg_std > 0.3 and amp_asymm > 1.4:
             is_parkinsons = 1
-            # Confidence scales with amplitude up to a point
-            confidence = min(0.95, 0.5 + (max_amplitude * 0.1))
+            confidence = min(0.88, 0.45 + avg_std * 0.10 + (amp_asymm - 1.4) * 0.15)
+        elif avg_std > 0.5:                     # high overall tremor
+            is_parkinsons = 1
+            confidence = min(0.80, 0.40 + avg_std * 0.08)
         else:
-            # Healthy or non-Parkinsonian tremor
-            confidence = 0.8 # Confident it's not PD tremor
+            confidence = min(0.82, 0.60 + (0.3 - avg_std) * 0.5)  # healthy confidence
 
-        result = {
-            "model": "tremor",
-            "dominant_freq": float(dominant_freq),
-            "amplitude": float(max_amplitude),
-            "prediction": is_parkinsons,
-            "confidence": float(confidence)
+        return {
+            "model": "tremor", "source": "esp32_features",
+            "dominant_freq": 0.0,          # unavailable without raw data
+            "amplitude": float(avg_std),
+            "amp_asymmetry": float(amp_asymm),
+            "prediction": is_parkinsons, "confidence": float(confidence)
         }
-        
-        return result
-
     except Exception as e:
         return {"error": str(e), "prediction": -1, "confidence": 0}
 

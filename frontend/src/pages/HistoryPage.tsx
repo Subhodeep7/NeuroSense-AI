@@ -160,7 +160,6 @@ function HistoryPage() {
                     const modalityCount = [
                       h.voiceConfidence,
                       h.handwritingConfidence,
-                      h.gaitConfidence,
                       h.tremorConfidence,
                       h.visualConfidence,
                     ].filter((v: any) => v != null && v > 0).length;
@@ -233,7 +232,7 @@ function HistoryPage() {
                         {/* Modality count */}
                         <td className="px-6 py-4 text-center">
                           <span className="px-2 py-1 rounded-lg bg-[#afc6ff]/10 text-[#afc6ff] text-xs font-bold">
-                            {modalityCount}/5
+                            {modalityCount}/4
                           </span>
                         </td>
 

@@ -14,7 +14,6 @@ function PredictionPage() {
 
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
   const [handwritingFile, setHandwritingFile] = useState<File | null>(null);
-  const [gaitFile, setGaitFile] = useState<File | null>(null);
   const [tremorFile, setTremorFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
 
@@ -57,7 +56,6 @@ function PredictionPage() {
   const readySensors = [
     voiceFile && "Voice",
     handwritingFile && "Spiral",
-    gaitFile && "Gait",
     tremorFile && "Tremor",
     videoFile && "Visual",
     reactionTime && `${reactionTime}ms`,
@@ -72,7 +70,6 @@ function PredictionPage() {
       const res = await predictFull(
         voiceFile,
         handwritingFile,
-        gaitFile,
         tremorFile,
         reactionTime,
         videoFile,
@@ -122,7 +119,6 @@ function PredictionPage() {
           </select>
         </div>
 
-        {/* 🧩 MODALITY GRID */}
         <div className="grid md:grid-cols-2 gap-6">
           <div className="glass-card p-6 rounded-xl">
             <VoiceRecorder onCapture={setVoiceFile} />
@@ -131,14 +127,10 @@ function PredictionPage() {
           <div className="glass-card p-6 rounded-xl">
             <HandwritingCanvas onCapture={setHandwritingFile} />
           </div>
+        </div>
 
-          <div className="glass-card p-6 rounded-xl">
-            <MotionCapture type="gait" onCapture={setGaitFile} />
-          </div>
-
-          <div className="glass-card p-6 rounded-xl">
-            <MotionCapture type="tremor" onCapture={setTremorFile} />
-          </div>
+        <div className="glass-card p-6 rounded-xl">
+          <MotionCapture type="tremor" onCapture={setTremorFile} />
         </div>
 
         <div className="glass-card p-6 rounded-xl">
@@ -205,7 +197,6 @@ function PredictionPage() {
               {[
                 { key: "voiceConfidence",       label: "Voice",       icon: "mic" },
                 { key: "handwritingConfidence", label: "Handwriting", icon: "edit" },
-                { key: "gaitConfidence",        label: "Gait",        icon: "directions_walk" },
                 { key: "tremorConfidence",      label: "Tremor",      icon: "vibration" },
                 { key: "visualConfidence",      label: "Visual",      icon: "visibility" },
               ].map(({ key, label, icon }) => {
