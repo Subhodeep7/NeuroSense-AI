@@ -9,6 +9,11 @@ export async function getAllPatients(): Promise<Patient[]> {
     return [];
 }
 
+export async function createPatient(patient: Partial<Patient>): Promise<Patient> {
+    const response = await axios.post(`${BASE_URL}/patients`, patient);
+    return response.data;
+}
+
 export async function getPredictionHistory(patientId: number): Promise<Prediction[]> {
     const response = await axios.get(`${BASE_URL}/patients/${patientId}/predictions`);
     if (Array.isArray(response.data)) return response.data;

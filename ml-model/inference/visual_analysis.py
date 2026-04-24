@@ -178,7 +178,8 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     avg_r_swing  = float(np.mean(r_arm_swings))
     arm_asym     = abs(avg_l_swing - avg_r_swing) / (avg_l_swing + avg_r_swing + 1e-6)
     # PD hallmark: one arm swings much less. Clinical threshold ≈ 0.25
-    arm_asym_pd  = arm_asym > 0.25
+    # PD hallmark: one arm swings much less. Clinical threshold ≈ 0.18 (adjusted for early detection)
+    arm_asym_pd  = arm_asym > 0.18
 
     # ── BIOMARKER 2: Step Length Asymmetry ─────────────────────────────────
     # Horizontal distance of each ankle from the hip midpoint
@@ -187,13 +188,13 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     avg_l_step  = float(np.mean(l_step_lens))
     avg_r_step  = float(np.mean(r_step_lens))
     step_asym   = abs(avg_l_step - avg_r_step) / (avg_l_step + avg_r_step + 1e-6)
-    step_asym_pd = step_asym > 0.20
+    step_asym_pd = step_asym > 0.18
 
     # ── BIOMARKER 3: Trunk Lateral Sway ────────────────────────────────────
     # Midpoint of shoulders x-coordinate variance → postural instability
     shoulder_mid_x = [(f['l_shoulder_x'] + f['r_shoulder_x']) / 2 for f in good_frames]
     trunk_sway     = float(np.std(shoulder_mid_x))
-    trunk_sway_pd  = trunk_sway > 0.045  # normalized coords; clinical threshold
+    trunk_sway_pd  = trunk_sway > 0.040  # more sensitive threshold
 
     # ── BIOMARKER 4: Forward Trunk Lean (Camptocormia) ─────────────────────
     # Difference between shoulder midpoint y and hip midpoint y
@@ -203,8 +204,8 @@ def analyze_with_mediapipe(video_path: str) -> dict:
                           for f in good_frames]
     avg_lean     = float(np.mean(shoulder_hip_diffs))
     # Healthy upright: diff ~0.25–0.35 (hips well below shoulders in image coords)
-    # Forward lean: diff < 0.20 (stooped, shoulders dropped toward hips)
-    trunk_lean_pd = avg_lean < 0.20
+    # Forward lean: diff < 0.22 (stooped)
+    trunk_lean_pd = avg_lean < 0.22
 
     # ── BIOMARKER 5: Stride Rhythm Irregularity (Festination) ──────────────
     # Detect ankle y-coordinate zero-crossings (step events) → compute cadence CoV
@@ -216,9 +217,9 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     if len(peaks) > 2:
         intervals     = np.diff(peaks)
         stride_cov    = float(np.std(intervals) / (np.mean(intervals) + 1e-6))
-        stride_rhythm_pd = stride_cov > 0.25  # high variability = festination
+        stride_rhythm_pd = stride_cov > 0.22  # increased sensitivity
         cadence_spm   = (len(peaks) / (n / fps)) * 60 if fps > 0 else 0
-        low_cadence_pd = cadence_spm > 0 and cadence_spm < 90  # shuffling gait
+        low_cadence_pd = cadence_spm > 0 and cadence_spm < 95  # increased sensitivity
     else:
         stride_cov     = 0.0
         stride_rhythm_pd = False
@@ -229,7 +230,7 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     # Excessive head movement compensates for reduced arm/trunk swing
     nose_y     = np.array([f['nose_y'] for f in good_frames])
     head_bob   = float(np.std(nose_y))
-    head_bob_pd = head_bob > 0.025  # normalized; healthy < 0.015
+    head_bob_pd = head_bob > 0.022  # normalized; healthy < 0.015
 
     # ── BIOMARKER 7: Upper Body Motion Energy (Bradykinesia) ───────────────
     # Overall wrist motion energy — reduced in bradykinesia
@@ -238,27 +239,23 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     r_wrist_motion = float(np.std([f['r_wrist_y'] for f in good_frames]) +
                            np.std([f['r_wrist_x'] for f in good_frames]))
     avg_wrist_motion = (l_wrist_motion + r_wrist_motion) / 2
-    bradykinesia_pd  = avg_wrist_motion < 0.030  # very little wrist movement
+    bradykinesia_pd  = avg_wrist_motion < 0.038  # increased sensitivity
 
     # ── WEIGHTED FUSION of 7 Biomarkers ────────────────────────────────────
-    # Weights based on clinical sensitivity/specificity literature:
-    #   Arm swing asymmetry    — highest specificity for PD (NEJM, Mirelman 2019)
-    #   Stride rhythm (CoV)   — most sensitive (Hausdorff 2007)
-    #   Low cadence           — strong Parkinson's marker
-    #   Trunk sway            — moderate (also in falls risk)
-    #   Step asymmetry        — moderate
-    #   Trunk lean            — moderate (camptocormia)
-    #   Bradykinesia          — strong but camera-dependent
-    #   Head bob              — supplementary
+    # Weights optimized for clinical specificty:
+    #   Arm swing asymmetry    — boosted to 0.30 as primary unilateral marker
+    #   Stride rhythm (CoV)   — 0.22
+    #   Low cadence           — 0.18
+    #   Bradykinesia          — 0.18
     votes = {
-        'arm_asymmetry':  (arm_asym_pd,     0.22),
-        'stride_rhythm':  (stride_rhythm_pd, 0.20),
+        'arm_asymmetry':  (arm_asym_pd,     0.30),
+        'stride_rhythm':  (stride_rhythm_pd, 0.22),
         'low_cadence':    (low_cadence_pd,   0.18),
-        'bradykinesia':   (bradykinesia_pd,  0.16),
-        'step_asymmetry': (step_asym_pd,     0.10),
-        'trunk_sway':     (trunk_sway_pd,    0.08),
-        'trunk_lean':     (trunk_lean_pd,    0.04),
-        'head_bob':       (head_bob_pd,      0.02),
+        'bradykinesia':   (bradykinesia_pd,  0.18),
+        'step_asymmetry': (step_asym_pd,     0.06),
+        'trunk_sway':     (trunk_sway_pd,    0.04),
+        'trunk_lean':     (trunk_lean_pd,    0.01),
+        'head_bob':       (head_bob_pd,      0.01),
     }
 
     weighted_risk  = sum(w for (flag, w) in votes.values() if flag)
@@ -466,8 +463,11 @@ def draw_annotated_frame(video_path: str, biomarker_flags: dict, uploads_dir: st
     best_lm    = None
     frame_idx  = 0
 
+    # Detect delegate (GPU if available)
+    delegate = mp_python.BaseOptions.Delegate.GPU if MEDIAPIPE_AVAILABLE else mp_python.BaseOptions.Delegate.CPU
+
     opts = PoseLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=MODEL_PATH),
+        base_options=BaseOptions(model_asset_path=MODEL_PATH, delegate=delegate),
         running_mode=VisionRunningMode.VIDEO,
         num_poses=1,
         min_pose_detection_confidence=0.5,

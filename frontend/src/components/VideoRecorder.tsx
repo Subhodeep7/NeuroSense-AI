@@ -38,7 +38,7 @@ export default function VideoRecorder({ onCapture }: Props) {
       setDuration(0);
       timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
     } catch {
-      alert("Camera access denied. Please allow camera permissions.");
+      alert("Camera access denied.");
     }
   }
 
@@ -54,52 +54,95 @@ export default function VideoRecorder({ onCapture }: Props) {
     streamRef.current?.getTracks().forEach((t) => t.stop());
   }
 
-  return (
-    <div className="bg-[#1d2026]/60 backdrop-blur-xl border border-[#2a2f3a] rounded-2xl p-6 relative">
-      <h3 className="font-bold text-[#afc6ff] flex items-center gap-2 mb-2">
-        <span className="material-symbols-outlined">videocam</span>
-        Visual Analysis
-      </h3>
-      <p className="text-xs text-[#8c90a0] mb-4">Record walking posture & arm swing</p>
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPreview(URL.createObjectURL(file));
+      onCapture(file);
+    }
+  };
 
-      <div className="flex gap-2 mb-4 text-[#e1e2eb]">
-        <button onClick={() => setMode("upload")} className={`px-3 py-1 text-xs rounded ${mode === "upload" ? "bg-[#afc6ff] text-black" : "bg-[#272a31]"}`}>
-          Upload
-        </button>
-        <button onClick={() => { setMode("record"); resetCamera(); }} className={`px-3 py-1 text-xs rounded ${mode === "record" ? "bg-[#afc6ff] text-black" : "bg-[#272a31]"}`}>
-          Use Camera
-        </button>
+  return (
+    <div className="space-y-6">
+      {/* HEADER */}
+      <div className="flex justify-between items-center">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-midnight">
+          Gait & Posture Analysis
+        </h3>
+
+        <div className="flex bg-slate/5 p-1 rounded-lg border border-slate/10">
+          <button
+            onClick={() => setMode("upload")}
+            className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${
+              mode === "upload" ? "bg-white text-midnight shadow-sm" : "text-slate hover:text-midnight"
+            }`}
+          >
+            Upload
+          </button>
+          <button
+            onClick={() => { setMode("record"); resetCamera(); }}
+            className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${
+              mode === "record" ? "bg-white text-midnight shadow-sm" : "text-slate hover:text-midnight"
+            }`}
+          >
+            Use Camera
+          </button>
+        </div>
       </div>
 
-      {mode === "upload" && (
-        <input type="file" accept="video/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) onCapture(f); }} className="text-sm w-full" />
-      )}
+      {/* CONTENT */}
+      <div className="h-64 flex flex-col items-center justify-center bg-slate/[0.02] border-2 border-dashed border-slate/20 rounded-2xl relative overflow-hidden">
+        {preview ? (
+          <div className="w-full h-full relative group animate-in zoom-in duration-500">
+             <video src={preview} controls className="w-full h-full object-cover" />
+             <button 
+                onClick={resetCamera}
+                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-medical-red hover:scale-110 transition-transform z-10"
+              >
+                 <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+          </div>
+        ) : mode === "upload" ? (
+          <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-slate/[0.05] transition-all group">
+             <span className="material-symbols-outlined text-4xl text-slate/30 group-hover:text-medical-teal transition-colors mb-3">video_file</span>
+             <p className="text-xs font-bold text-slate">CLICK TO UPLOAD VIDEO</p>
+             <p className="text-[10px] text-slate/40 mt-1 uppercase tracking-widest">MP4, WEBM, MOV</p>
+             <input type="file" className="hidden" accept="video/*" onChange={handleFileUpload} />
+          </label>
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center relative">
+            <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover grayscale contrast-125" />
+            
+            {!recording ? (
+               <div className="absolute inset-0 flex flex-col items-center justify-center bg-midnight/20 backdrop-blur-[2px]">
+                  <button 
+                    onClick={startCamera} 
+                    className="px-8 py-3 bg-medical-teal text-white text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-medical-teal/90 transition-all shadow-lg shadow-medical-teal/20"
+                  >
+                    Initialize Camera
+                  </button>
+               </div>
+            ) : (
+               <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1 bg-medical-red/90 rounded-full border border-white/20">
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                  <span className="text-[10px] font-bold text-white uppercase tracking-widest">{duration}s</span>
+               </div>
+            )}
 
-      {mode === "record" && (
-        <div className="space-y-4">
-          <video ref={videoRef} autoPlay muted playsInline className={`w-full rounded-xl bg-[#10131a] border border-[#2a2f3a] ${preview ? "hidden" : ""}`} style={{ maxHeight: 280 }} />
-          {preview && <video src={preview} controls className="w-full rounded-xl border border-[#2a2f3a]" style={{ maxHeight: 280 }} />}
-          
-          <div className="flex gap-3">
-            {!recording && !preview && (
-              <button onClick={startCamera} className="flex-1 py-3 bg-[#afc6ff] text-gray-900 rounded-lg font-bold hover:scale-105 transition shadow-[0_0_20px_rgba(175,198,255,0.4)]">
-                Start Recording
-              </button>
-            )}
             {recording && (
-              <button onClick={stopCamera} className="flex-1 py-3 bg-red-500 text-white rounded-lg font-bold animate-pulse hover:bg-red-600 transition">
-                Stop ({duration}s)
-              </button>
-            )}
-            {preview && (
-              <button onClick={resetCamera} className="flex-1 py-3 bg-[#272a31] text-white rounded-lg font-bold hover:bg-[#32353c] transition">
-                Re-record
-              </button>
+               <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
+                  <button 
+                    onClick={stopCamera} 
+                    className="px-8 py-2.5 bg-white text-midnight text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-slate/5 transition-all shadow-xl"
+                  >
+                    Stop Recording
+                  </button>
+               </div>
             )}
           </div>
-          {preview && <p className="text-[#6ee7b7] text-sm font-medium text-center">✓ Video captured ({duration}s)</p>}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+

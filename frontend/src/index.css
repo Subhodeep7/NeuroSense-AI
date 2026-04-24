@@ -1,7 +1,98 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+
+@theme {
+  --color-midnight: #0E2341;
+  --color-pearl: #FDFCF8;
+  --color-slate: #64748B;
+  --color-medical-teal: #14B8A6;
+  --color-medical-amber: #F59E0B;
+  --color-medical-red: #EF4444;
+  
+  --font-serif: "Fraunces", serif;
+  --font-sans: "Inter", sans-serif;
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+}
 
 @layer components {
   .glass-card {
-    @apply bg-[#1d2026]/40 backdrop-blur-xl border border-[#2a2f3a];
+    @apply bg-white/70 backdrop-blur-md border border-[#E2E8F0] shadow-sm;
+  }
+  
+  .medical-card {
+    @apply bg-white border border-[#E2E8F0] rounded-2xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.04)] transition-all duration-300;
+  }
+
+  .medical-card-hover {
+    @apply hover:shadow-[0_20px_25px_-5px_rgba(14,35,65,0.1),0_10px_10px_-5px_rgba(14,35,65,0.04)] hover:-translate-y-1;
+  }
+
+  .nav-anchor {
+    @apply flex items-center gap-4 px-5 py-3.5 rounded-xl transition-all duration-300 text-slate font-medium;
+  }
+
+  .nav-anchor:hover {
+    @apply bg-white/5 text-white/90;
+  }
+
+  .nav-anchor-active {
+    @apply bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.1)] font-bold;
+    position: relative;
+  }
+
+  .nav-anchor-active::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 25%;
+    height: 50%;
+    width: 4px;
+    background: var(--color-medical-teal);
+    border-radius: 0 4px 4px 0;
+  }
+
+  .input-premium {
+    @apply w-full bg-slate/5 border border-slate/10 px-5 py-3.5 rounded-xl focus:ring-2 focus:ring-medical-teal text-midnight font-bold outline-none transition-all duration-300;
+  }
+
+  .btn-premium {
+    @apply px-8 py-3.5 rounded-xl bg-midnight text-white font-bold text-sm hover:bg-midnight/90 transition-all duration-300 shadow-lg shadow-midnight/20 active:scale-95 disabled:opacity-50;
+  }
+
+  .btn-outline-premium {
+    @apply px-8 py-3.5 rounded-xl border border-slate/20 bg-white text-slate font-bold text-sm hover:border-midnight hover:text-midnight transition-all duration-300 active:scale-95;
+  }
+
+  /* Contribution Chart Styles */
+  .contribution-bar-container {
+    @apply h-2 bg-slate/5 rounded-full overflow-hidden flex;
+  }
+  
+  .contribution-bar {
+    @apply h-full transition-all duration-1000 ease-out;
+  }
+
+  .splash-particle {
+    @apply absolute rounded-full bg-white/20 blur-xl animate-float;
   }
 }
+
+body {
+  @apply font-sans bg-pearl text-midnight selection:bg-medical-teal/20 selection:text-midnight;
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(214,100%,99%,1) 0, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(210,40%,97%,1) 0, transparent 50%);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.animate-progress {
+  transition: width 1.5s cubic-bezier(0.65, 0, 0.35, 1);
+}

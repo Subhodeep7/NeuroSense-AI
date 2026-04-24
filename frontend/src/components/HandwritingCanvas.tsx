@@ -9,8 +9,8 @@ export default function HandwritingCanvas({ onCapture }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const [hasDrawing, setHasDrawing] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  // ✅ FIX: Proper canvas init
   useEffect(() => {
     if (mode === "draw") {
       requestAnimationFrame(drawGuide);
@@ -25,10 +25,9 @@ export default function HandwritingCanvas({ onCapture }: Props) {
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    ctx.strokeStyle = "rgba(175,198,255,0.2)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(14, 35, 65, 0.05)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 8]);
 
     ctx.beginPath();
     const cx = canvas.width / 2;
@@ -45,10 +44,10 @@ export default function HandwritingCanvas({ onCapture }: Props) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.fillStyle = "rgba(225,226,235,0.3)";
+    ctx.fillStyle = "rgba(14, 35, 65, 0.2)";
     ctx.font = "bold 10px Inter";
     ctx.textAlign = "center";
-    ctx.fillText("Draw the spiral", cx, canvas.height - 10);
+    ctx.fillText("DRAW SPIRAL STARTING FROM CENTER", cx, canvas.height - 15);
   }
 
   function getCoords(canvas: HTMLCanvasElement, x: number, y: number) {
@@ -65,17 +64,14 @@ export default function HandwritingCanvas({ onCapture }: Props) {
 
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
     const pos = getCoords(canvas, clientX, clientY);
 
     ctx.beginPath();
     ctx.moveTo(pos.x, pos.y);
-
-    ctx.strokeStyle = "#afc6ff";
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = "rgba(175,198,255,0.6)";
+    ctx.strokeStyle = "#0E2341";
     ctx.lineWidth = 3;
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
     drawingRef.current = true;
     if (e.touches) e.preventDefault();
@@ -83,30 +79,25 @@ export default function HandwritingCanvas({ onCapture }: Props) {
 
   function draw(e: any) {
     if (!drawingRef.current) return;
-
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
-
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
     const pos = getCoords(canvas, clientX, clientY);
 
     ctx.lineTo(pos.x, pos.y);
     ctx.stroke();
-
     setHasDrawing(true);
     if (e.touches) e.preventDefault();
   }
 
   function endDraw() {
     drawingRef.current = false;
-    const ctx = canvasRef.current?.getContext("2d");
-    if (ctx) ctx.shadowBlur = 0;
   }
 
   function clearCanvas() {
     setHasDrawing(false);
+    setPreviewUrl(null);
     drawGuide();
   }
 
@@ -114,39 +105,41 @@ export default function HandwritingCanvas({ onCapture }: Props) {
     const canvas = canvasRef.current!;
     canvas.toBlob((blob) => {
       if (!blob) return;
-      const file = new File([blob], "spiral.png", { type: "image/png" });
+      const file = new File([blob], "handwriting.png", { type: "image/png" });
+      setPreviewUrl(URL.createObjectURL(blob));
       onCapture(file);
     });
   }
 
-  return (
-    <div className="bg-[#1d2026]/60 backdrop-blur-xl border border-[#2a2f3a] rounded-2xl p-6 relative">
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPreviewUrl(URL.createObjectURL(file));
+      onCapture(file);
+    }
+  };
 
+  return (
+    <div className="space-y-6">
       {/* HEADER */}
-      <div className="flex justify-between mb-4">
-        <h3 className="font-bold text-[#afc6ff] flex items-center gap-2">
-          <span className="material-symbols-outlined">gesture</span>
-          Spiral Analysis
+      <div className="flex justify-between items-center">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-midnight">
+          Handwriting Analysis
         </h3>
 
-        <div className="flex gap-2">
+        <div className="flex bg-slate/5 p-1 rounded-lg border border-slate/10">
           <button
             onClick={() => setMode("upload")}
-            className={`px-3 py-1 text-xs rounded ${
-              mode === "upload"
-                ? "bg-[#afc6ff] text-black"
-                : "bg-[#272a31]"
+            className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${
+              mode === "upload" ? "bg-white text-midnight shadow-sm" : "text-slate hover:text-midnight"
             }`}
           >
             Upload
           </button>
-
           <button
             onClick={() => setMode("draw")}
-            className={`px-3 py-1 text-xs rounded ${
-              mode === "draw"
-                ? "bg-[#afc6ff] text-black"
-                : "bg-[#272a31]"
+            className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${
+              mode === "draw" ? "bg-white text-midnight shadow-sm" : "text-slate hover:text-midnight"
             }`}
           >
             Draw
@@ -156,22 +149,35 @@ export default function HandwritingCanvas({ onCapture }: Props) {
 
       {/* CONTENT */}
       {mode === "upload" ? (
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onCapture(f);
-          }}
-          className="w-full text-sm"
-        />
+        <div className="space-y-4">
+           {previewUrl ? (
+             <div className="relative group">
+                <img src={previewUrl} className="w-full h-48 object-contain bg-slate/5 rounded-2xl border border-slate/10 p-4" alt="Preview" />
+                <button 
+                  onClick={() => { setPreviewUrl(null); }}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white shadow-lg flex items-center justify-center text-medical-red hover:scale-110 transition-transform"
+                >
+                   <span className="material-symbols-outlined text-sm">close</span>
+                </button>
+             </div>
+           ) : (
+             <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate/20 rounded-2xl bg-slate/[0.02] cursor-pointer hover:bg-slate/[0.05] hover:border-medical-teal/40 transition-all group">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <span className="material-symbols-outlined text-4xl text-slate/30 group-hover:text-medical-teal transition-colors mb-3">upload_file</span>
+                  <p className="text-xs font-bold text-slate">CLICK TO UPLOAD SCAN</p>
+                  <p className="text-[10px] text-slate/40 mt-1 uppercase tracking-widest">PNG, JPG up to 10MB</p>
+                </div>
+                <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+             </label>
+           )}
+        </div>
       ) : (
-        <div>
+        <div className="space-y-4">
           <canvas
             ref={canvasRef}
-            width={400}
-            height={300}
-            className="w-full bg-[#10131a] border border-[#2a2f3a] rounded-xl"
+            width={800}
+            height={600}
+            className="w-full h-48 bg-slate/[0.02] border-2 border-dashed border-slate/20 rounded-2xl touch-none cursor-crosshair"
             onMouseDown={startDraw}
             onMouseMove={draw}
             onMouseUp={endDraw}
@@ -181,22 +187,17 @@ export default function HandwritingCanvas({ onCapture }: Props) {
             onTouchEnd={endDraw}
           />
 
-          <div className="flex gap-3 mt-3">
+          <div className="flex gap-3">
             <button
               onClick={clearCanvas}
-              className="flex-1 bg-[#272a31] py-2 rounded"
+              className="flex-1 py-3 bg-slate/5 text-slate text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-slate/10 transition-all"
             >
               Clear
             </button>
-
             <button
               onClick={captureDrawing}
               disabled={!hasDrawing}
-              className={`flex-1 py-2 rounded ${
-                hasDrawing
-                  ? "bg-[#afc6ff] text-black"
-                  : "bg-gray-600"
-              }`}
+              className="flex-1 py-3 bg-midnight text-white text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-midnight/90 disabled:opacity-30 transition-all"
             >
               Capture
             </button>

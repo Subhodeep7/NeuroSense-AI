@@ -147,7 +147,11 @@ try:
     if not os.path.exists(MODEL_PATH):
         raise Exception(f"Model not found at {MODEL_PATH}. Run train_handwriting.py first.")
 
-    checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
+    # Detect device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"USING DEVICE: {device}", file=sys.stderr)
+
+    checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
     # Determine architecture from checkpoint
     arch = (checkpoint.get("architecture", "unknown")
@@ -158,8 +162,8 @@ try:
     num_hc_feats = (checkpoint.get("num_hc_feats", NUM_HC_FEATS)
                     if isinstance(checkpoint, dict) else NUM_HC_FEATS)
 
-    # Build model
-    model = HybridModel(num_handcrafted=num_hc_feats)
+    # Build model and move to device
+    model = HybridModel(num_handcrafted=num_hc_feats).to(device)
     state_dict = (checkpoint["model_state_dict"]
                   if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint
                   else checkpoint)
@@ -174,15 +178,15 @@ try:
 
     # Extract handcrafted features (computed once — stable across TTA views)
     hc_feats     = extract_handcrafted_features(image)
-    feat_tensor  = torch.tensor(hc_feats).unsqueeze(0)  # (1, 4)
+    feat_tensor  = torch.tensor(hc_feats).unsqueeze(0).to(device)  # Move to GPU
 
     # ── Run inference ────────────────────────────────────────────
     with torch.no_grad():
         if tta_enabled:
             # Average softmax over 5 TTA views; features are image-invariant
-            probs = torch.zeros(2)
+            probs = torch.zeros(2).to(device)
             for t in TTA_TRANSFORMS:
-                tensor = t(image).unsqueeze(0)
+                tensor = t(image).unsqueeze(0).to(device)
                 probs += torch.softmax(model(tensor, feat_tensor)[0], dim=0)
             probs /= len(TTA_TRANSFORMS)
         else:
@@ -190,17 +194,65 @@ try:
                 transforms.ToTensor(),
                 transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
             ])
-            tensor = base_transform(image).unsqueeze(0)
+            tensor = base_transform(image).unsqueeze(0).to(device)
             probs  = torch.softmax(model(tensor, feat_tensor)[0], dim=0)
+    
+    # Move probs back to CPU for numpy/json
+    probs = probs.cpu()
 
     prediction = int(probs.argmax().item())
     confidence = float(probs[prediction].item())
+
+    # ── OpenCV Segmentation & Tracing ────────────────────────────
+    # Segment blue pen strokes and overlay a colored trace based on result
+    try:
+        orig_img = cv2.imread(image_path)
+        if orig_img is not None:
+            # Convert to HSV for better blue segmentation
+            hsv = cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV)
+            # Blue range (adjust if necessary)
+            lower_blue = np.array([90, 50, 50])
+            upper_blue = np.array([130, 255, 255])
+            mask = cv2.inRange(hsv, lower_blue, upper_blue)
+            
+            # Find contours of the blue strokes
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Determine trace color based on prediction/confidence
+            # 0 = Normal, 1 = Parkinson's (High Risk if high confidence)
+            trace_color = (0, 255, 0) # Green (Normal)
+            risk_level = "LOW"
+            
+            if prediction == 1:
+                if confidence > 0.75:
+                    trace_color = (0, 0, 255) # Red (High Risk)
+                    risk_level = "HIGH"
+                else:
+                    trace_color = (0, 255, 255) # Yellow (Moderate Risk)
+                    risk_level = "MEDIUM"
+            
+            # Create a clean white canvas for the trace or overlay on original
+            # Let's overlay on the original image for context
+            annotated = orig_img.copy()
+            cv2.drawContours(annotated, contours, -1, trace_color, 2)
+            
+            # Save annotated image
+            base, ext = os.path.splitext(image_path)
+            annotated_path = f"{base}_annotated{ext}"
+            cv2.imwrite(annotated_path, annotated)
+            annotated_name = os.path.basename(annotated_path)
+        else:
+            annotated_name = None
+    except:
+        annotated_name = None
 
     print(json.dumps({
         "model"        : "handwriting",
         "architecture" : arch,
         "prediction"   : prediction,
         "confidence"   : confidence,
+        "risk_level"   : risk_level,
+        "annotated_image": annotated_name,
         "tta"          : tta_enabled,
         "handcrafted_features": {
             "stroke_smoothness"   : float(hc_feats[0]),

@@ -17,6 +17,8 @@ function PredictionPage() {
   const [tremorFile, setTremorFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
 
+  const [reactionAttempts, setReactionAttempts] = useState<number[]>([]);
+  const MAX_ATTEMPTS = 5;
   const [reactionTime, setReactionTime] = useState<number | null>(null);
   const [testState, setTestState] = useState<"idle" | "waiting" | "ready">("idle");
   const [startTime, setStartTime] = useState<number>(0);
@@ -25,6 +27,33 @@ function PredictionPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => { loadPatients(); }, []);
+  
+  // 🧼 Clear screening state when patient focus changes
+  useEffect(() => {
+    setVoiceFile(null);
+    setHandwritingFile(null);
+    setTremorFile(null);
+    setVideoFile(null);
+    setReactionAttempts([]);
+    setReactionTime(null);
+    setResult(null);
+  }, [selectedPatient]);
+
+  // ⌨️ Spacebar Listener for Reaction Test
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault(); // Stop page scrolling
+        if (testState === "ready" || testState === "waiting") {
+          clickReactionTest();
+        } else if (testState === "idle" && reactionAttempts.length < MAX_ATTEMPTS) {
+          startReactionTest();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [testState, reactionAttempts]);
 
   async function loadPatients() {
     try {
@@ -36,17 +65,31 @@ function PredictionPage() {
   }
 
   function startReactionTest() {
+    if (reactionAttempts.length >= MAX_ATTEMPTS) {
+      setReactionAttempts([]);
+      setReactionTime(null);
+    }
     setTestState("waiting");
     setTimeout(() => {
       setTestState("ready");
-      setStartTime(Date.now());
+      setStartTime(performance.now());
     }, Math.random() * 2000 + 1000);
   }
 
   function clickReactionTest() {
     if (testState === "ready") {
-      setReactionTime(Date.now() - startTime);
+      const delta = Math.round(performance.now() - startTime);
+      const newAttempts = [...reactionAttempts, delta];
+      setReactionAttempts(newAttempts);
       setTestState("idle");
+
+      if (newAttempts.length === MAX_ATTEMPTS) {
+        // Exclude slowest time, average remaining 4
+        const maxVal = Math.max(...newAttempts);
+        const filtered = newAttempts.filter((_, i) => i !== newAttempts.indexOf(maxVal));
+        const avg = Math.round(filtered.reduce((a, b) => a + b, 0) / 4);
+        setReactionTime(avg);
+      }
     } else if (testState === "waiting") {
       alert("Too early!");
       setTestState("idle");
@@ -55,15 +98,15 @@ function PredictionPage() {
 
   const readySensors = [
     voiceFile && "Voice",
-    handwritingFile && "Spiral",
+    handwritingFile && "Handwriting",
     tremorFile && "Tremor",
-    videoFile && "Visual",
+    videoFile && "Gait",
     reactionTime && `${reactionTime}ms`,
   ].filter(Boolean);
 
   async function handlePredict() {
     if (!selectedPatient) return alert("Select patient");
-    if (readySensors.length === 0) return alert("Capture data");
+    if (readySensors.length < 2) return alert("Complete at least 2 tests to continue");
 
     setLoading(true);
     try {
@@ -77,320 +120,322 @@ function PredictionPage() {
       );
       setResult(res);
     } catch {
-      alert("Prediction failed");
+      alert("Analysis failed");
     }
     setLoading(false);
   }
 
+  const getReactionColor = (ms: number) => {
+    if (ms < 400) return "text-medical-teal";
+    if (ms <= 550) return "text-medical-amber";
+    return "text-medical-red";
+  };
+
+  const getReactionBg = (ms: number) => {
+    if (ms < 400) return "bg-medical-teal/5 border-medical-teal/10";
+    if (ms <= 550) return "bg-medical-amber/5 border-medical-amber/10";
+    return "bg-medical-red/5 border-medical-red/10";
+  };
+
   return (
-    <div className="min-h-screen bg-[#0b0e14] text-[#e1e2eb] relative overflow-hidden">
+    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-2 duration-700">
 
-      {/* 🌌 Background Glow */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#afc6ff]/10 blur-[140px]" />
-        <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-[#d8b9ff]/10 blur-[120px]" />
-      </div>
-
-      <div className="relative z-10 max-w-[1400px] mx-auto p-8 space-y-10">
-
-        {/* 🧠 HEADER */}
+      {/* 🧠 HEADER */}
+      <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-5xl font-extrabold">
-            Neural <span className="text-[#afc6ff]">Assessment</span>
+          <h1 className="font-serif text-4xl font-bold text-midnight tracking-tight mb-2">
+            Screening Intelligence Suite
           </h1>
-          <p className="text-[#8c90a0]">
-            Multimodal Parkinson’s detection system
+          <p className="text-slate font-medium">
+            Multimodal Biomarker Screening & Risk Analysis
           </p>
         </div>
-
-        {/* 🧬 PATIENT SELECTOR */}
-        <div className="glass-card p-6 rounded-xl">
-          <label className="text-sm text-[#8c90a0]">Select Patient</label>
-          <select
-            onChange={(e) => setSelectedPatient(Number(e.target.value))}
-            className="w-full mt-2 bg-[#10131a] border border-[#2a2f3a] p-3 rounded-lg text-white"
-          >
-            <option value="">Choose patient</option>
-            {patients.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.age})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="glass-card p-6 rounded-xl">
-            <VoiceRecorder onCapture={setVoiceFile} />
-          </div>
-
-          <div className="glass-card p-6 rounded-xl">
-            <HandwritingCanvas onCapture={setHandwritingFile} />
+        <div className="flex gap-2">
+          <div className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${readySensors.length >= 2 ? 'bg-medical-teal/10 text-medical-teal border-medical-teal/20' : 'bg-slate/5 text-slate/40 border-slate/10'}`}>
+            {readySensors.length}/5 Tests Completed
           </div>
         </div>
+      </div>
 
-        <div className="glass-card p-6 rounded-xl">
-          <MotionCapture type="tremor" onCapture={setTremorFile} />
-        </div>
+      <div className="grid grid-cols-12 gap-8">
 
-        <div className="glass-card p-6 rounded-xl">
-          <VideoRecorder onCapture={setVideoFile} />
-        </div>
+        {/* 🧬 PATIENT SELECTOR & SUBMIT (LEFT COL) */}
+        <div className="col-span-12 lg:col-span-4 space-y-8">
+          <div className="medical-card p-8 bg-white shadow-xl">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate mb-4">Patient Focus</h3>
+            <select
+              onChange={(e) => setSelectedPatient(Number(e.target.value))}
+              className="input-premium"
+            >
+              <option value="">Select Profile...</option>
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} (Age {p.age})
+                </option>
+              ))}
+            </select>
+            <p className="mt-4 text-[10px] text-slate/60 font-medium italic">Selecting a participant will link all screening data to their clinical record.</p>
+          </div>
 
-        {/* ⚡ REACTION TEST */}
-        <div className="glass-card p-8 rounded-xl text-center border border-[#afc6ff]/30">
+          {/* ⚡ REACTION SPEED MODULE */}
+          <div className="medical-card p-8 text-center relative overflow-hidden bg-white shadow-xl">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-midnight">Reaction Speed Analysis</h3>
+              <div className="flex gap-1">
+                {[...Array(MAX_ATTEMPTS)].map((_, i) => (
+                  <div key={i} className={`w-1.5 h-1.5 rounded-full ${i < reactionAttempts.length ? 'bg-medical-teal' : 'bg-slate/20'}`} />
+                ))}
+              </div>
+            </div>
 
-          <h3 className="text-xl font-bold mb-2">Reaction Delta</h3>
+            {reactionTime ? (
+              <div className={`mb-8 p-6 rounded-2xl border animate-in zoom-in duration-500 ${getReactionBg(reactionTime)}`}>
+                <p className={`text-5xl font-serif font-bold leading-none ${getReactionColor(reactionTime)}`}>{reactionTime}<span className="text-xl ml-1">ms</span></p>
+                <p className={`text-[10px] font-bold mt-3 uppercase tracking-widest leading-none ${getReactionColor(reactionTime)}`}>Clinical Average (N=4)</p>
+              </div>
+            ) : (
+              <div className="mb-8 py-8 flex flex-col items-center opacity-20">
+                <span className="material-symbols-outlined text-6xl font-light mb-2">keyboard</span>
+                <p className="text-[10px] font-bold uppercase tracking-widest">
+                  {reactionAttempts.length > 0 ? `Trial ${reactionAttempts.length + 1} of ${MAX_ATTEMPTS}` : 'Awaiting Input'}
+                </p>
+              </div>
+            )}
 
-          {reactionTime && (
-            <p className="text-[#afc6ff] mb-4 font-bold">
-              {reactionTime} ms
+            <div className="space-y-4">
+              {testState === "idle" && (
+                <button
+                  onClick={startReactionTest}
+                  className="w-full py-4 border-2 border-midnight text-midnight rounded-xl font-bold hover:bg-midnight hover:text-white transition-all active:scale-95"
+                >
+                  {reactionAttempts.length > 0 && reactionAttempts.length < MAX_ATTEMPTS
+                    ? `Start Trial ${reactionAttempts.length + 1}`
+                    : reactionTime ? "Reset & Restart" : "Initialize Test"}
+                </button>
+              )}
+
+              {testState === "waiting" && (
+                <button
+                  className="w-full py-10 bg-medical-amber/10 border-2 border-medical-amber text-medical-amber animate-pulse rounded-xl font-bold cursor-wait"
+                >
+                  READYING...
+                </button>
+              )}
+
+              {testState === "ready" && (
+                <button
+                  className="w-full py-10 bg-medical-teal text-white shadow-lg shadow-medical-teal/30 rounded-xl font-bold pointer-events-none"
+                >
+                  TRIGGER NOW
+                </button>
+              )}
+            </div>
+
+            <div className="mt-6 p-4 rounded-xl bg-slate/5 border border-slate/10">
+              <p className="text-[10px] text-slate font-bold uppercase tracking-widest mb-1">Methodology</p>
+              <p className="text-[10px] text-slate/70 font-medium">
+                Press the <span className="text-midnight font-bold">SPACEBAR</span> as soon as it turns green. We exclude the slowest trial for outlier suppression.
+              </p>
+            </div>
+          </div>
+
+          <div className="medical-card p-10 border-medical-teal/20 bg-medical-teal/[0.02] shadow-xl">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate mb-8 text-center leading-none">Assessment Activation</h3>
+            
+            <div className="space-y-6">
+              {!selectedPatient && (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-medical-amber/10 border border-medical-amber/20 text-medical-amber animate-pulse">
+                  <span className="material-symbols-outlined text-sm">person_search</span>
+                  <p className="text-[10px] font-bold uppercase tracking-widest">Select Patient Profile to Begin</p>
+                </div>
+              )}
+
+              {readySensors.length < 2 && (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-slate/5 border border-slate/10 text-slate">
+                  <span className="material-symbols-outlined text-sm">biotech</span>
+                  <p className="text-[10px] font-bold uppercase tracking-widest">Complete at least 2 tests ({readySensors.length}/5)</p>
+                </div>
+              )}
+
+              {selectedPatient && readySensors.length >= 2 && (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-medical-teal/10 border border-medical-teal/20 text-medical-teal">
+                  <span className="material-symbols-outlined text-sm">check_circle</span>
+                  <p className="text-[10px] font-bold uppercase tracking-widest">Clinically Ready for Analysis</p>
+                </div>
+              )}
+
+              <button
+                onClick={handlePredict}
+                disabled={loading || !selectedPatient || readySensors.length < 2}
+                className="w-full py-5 rounded-2xl bg-midnight text-white font-bold text-lg hover:bg-midnight/90 transition-all shadow-xl shadow-midnight/20 disabled:opacity-20 disabled:cursor-not-allowed group relative overflow-hidden active:scale-95"
+              >
+                <span className="relative z-10">
+                  {loading ? "Fusing Neural Data..." : 
+                   !selectedPatient ? "Select Profile" :
+                   readySensors.length < 2 ? "Awaiting Sensors" : "Run Screening Analysis"}
+                </span>
+                {loading && <div className="absolute inset-0 bg-medical-teal/20 animate-pulse"></div>}
+              </button>
+            </div>
+            
+            <p className="text-[10px] text-slate font-bold uppercase tracking-widest mt-8 text-center opacity-40">
+              Multimodal Clinical Integration Engine
             </p>
-          )}
-
-          {testState === "idle" && (
-            <button
-              onClick={startReactionTest}
-              className="px-8 py-3 bg-gradient-to-r from-[#afc6ff] to-[#528dff] rounded-full font-bold hover:scale-105 transition text-gray-900"
-            >
-              Start Test
-            </button>
-          )}
-
-          {testState === "waiting" && (
-            <button
-              onClick={clickReactionTest}
-              className="w-full py-10 bg-yellow-400 text-gray-900 animate-pulse rounded-xl font-bold"
-            >
-              WAIT...
-            </button>
-          )}
-
-          {testState === "ready" && (
-            <button
-              onClick={clickReactionTest}
-              className="w-full py-10 bg-green-500 text-white animate-bounce rounded-xl font-bold"
-            >
-              TAP NOW
-            </button>
-          )}
+          </div>
         </div>
 
-        {/* 🚀 SUBMIT */}
-        <button
-          onClick={handlePredict}
-          disabled={loading}
-          className="w-full py-5 rounded-full bg-gradient-to-r from-[#afc6ff] to-[#528dff] font-bold text-lg hover:scale-105 transition shadow-[0_0_20px_rgba(175,198,255,0.4)] text-gray-900"
-        >
-          {loading ? "Fusing Neural Data..." : "Generate Risk Score"}
-        </button>
-
-        {/* 📊 RESULT */}
-        {result && (
-          <div className="glass-card p-8 rounded-2xl border border-[#afc6ff]/20">
-
-            <h2 className="text-2xl font-bold text-center mb-6">
-              Diagnostic Summary
-            </h2>
-
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {[
-                { key: "voiceConfidence",       label: "Voice",       icon: "mic" },
-                { key: "handwritingConfidence", label: "Handwriting", icon: "edit" },
-                { key: "tremorConfidence",      label: "Tremor",      icon: "vibration" },
-                { key: "visualConfidence",      label: "Visual",      icon: "visibility" },
-              ].map(({ key, label, icon }) => {
-                const val = result[key];
-                if (val == null) return null;
-                const pct = (val * 100).toFixed(1);
-                const color = val >= 0.75 ? "#ff4d4f" : val >= 0.5 ? "#f59e0b" : "#10b981";
-                return (
-                  <div key={key} className="p-4 bg-[#10131a] rounded-xl text-center">
-                    <span className="material-symbols-outlined text-sm" style={{ color }}>{icon}</span>
-                    <p className="text-xs text-[#8c90a0] mt-1">{label}</p>
-                    <p className="font-bold text-lg mt-1" style={{ color }}>{pct}%</p>
-                  </div>
-                );
-              })}
+        {/* 🛠️ SENSOR COLLECTION (RIGHT COL) */}
+        <div className="col-span-12 lg:col-span-8 space-y-8">
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="medical-card p-8 bg-white shadow-lg border-slate/5">
+              <VoiceRecorder onCapture={setVoiceFile} />
+              <p className="mt-4 text-[10px] text-slate font-medium text-center italic">Phonetic pattern and articulation screening.</p>
             </div>
 
-            <RiskGauge risk={result.finalRisk} level={result.riskLevel} />
-
-            <div className="text-center mt-6">
-              <span className="px-4 py-2 rounded-full bg-[#afc6ff]/10 text-[#afc6ff] font-bold">
-                {result.riskLevel} — {(result.finalRisk * 100).toFixed(1)}%
-              </span>
+            <div className="medical-card p-8 bg-white shadow-lg border-slate/5">
+              <HandwritingCanvas onCapture={setHandwritingFile} />
+              <p className="mt-4 text-[10px] text-slate font-medium text-center italic">Micrographia and motor control analysis.</p>
             </div>
+          </div>
 
-            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                VISUAL GAIT ANALYSIS
-                Shows whenever result.visual exists (not gated on image).
-                Normalises field names across MediaPipe + OpenCV backends.
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-            {result.visual && (() => {
-              const v = result.visual;
+          <div className="medical-card p-8 bg-white shadow-lg border-slate/5">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-midnight">Hand Tremor Analysis</h3>
+              <span className="material-symbols-outlined text-slate/30">vibration</span>
+            </div>
+            <MotionCapture type="tremor" onCapture={setTremorFile} />
+            <p className="mt-4 text-[10px] text-slate font-medium text-center italic">Detection of involuntary resting tremor markers.</p>
+          </div>
 
-              // ── Field normalisation: MediaPipe keys first, OpenCV fallback ──
-              // MediaPipe: arm_swing_asymmetry  |  OpenCV: upper_arm_asym
-              // MediaPipe: step_asymmetry       |  OpenCV: step_asym
-              // MediaPipe: stride_cov           |  OpenCV: flow_cov
-              // MediaPipe: wrist_motion_energy  |  OpenCV: avg_flow
-              // MediaPipe: trunk_sway / cadence_spm  (no OpenCV equivalent → undefined)
-              const armAsym      = v.arm_swing_asymmetry ?? v.upper_arm_asym;
-              const stepAsym     = v.step_asymmetry      ?? v.step_asym;
-              const trunkSway    = v.trunk_sway;
-              const strideCov    = v.stride_cov          ?? v.flow_cov;
-              const cadence      = v.cadence_spm;
-              const wristEnergy  = v.wrist_motion_energy ?? v.avg_flow;
-              const trunkLean    = v.trunk_lean_avg;
-              const headBob      = v.head_bob_std;
+          <div className="medical-card p-8 bg-white shadow-lg border-slate/5">
 
-              const backend      = v.backend ?? "visual";
-              const isMediaPipe  = backend.includes("mediapipe");
-              const backendLabel = isMediaPipe
-                ? `MediaPipe Pose · ${v.frames_analyzed ?? "?"} frames @ ${v.fps ?? "?"} fps`
-                : `OpenCV Motion Analysis · ${v.frames_analyzed ?? "?"} frames`;
+            <VideoRecorder onCapture={setVideoFile} />
+            <p className="mt-4 text-[10px] text-slate font-medium text-center italic">Stride length, balance, and posture screening via video analysis.</p>
+          </div>
+        </div>
+      </div>
 
-              const biomarkers = [
-                { label: "Arm Swing Asymmetry", val: armAsym,     threshold: 0.25,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "PD hallmark — one arm freezes" },
-                { label: "Step Asymmetry",      val: stepAsym,    threshold: 0.20,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "Foot placement irregularity" },
-                { label: "Trunk Sway",          val: trunkSway,   threshold: 0.045, lowerBetter: true,  fmt: (x: number) => x.toFixed(4), clinicalNote: "Postural instability" },
-                { label: "Stride Variability",  val: strideCov,   threshold: 0.25,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "Festination / irregular cadence" },
-                { label: "Cadence (steps/min)", val: cadence,     threshold: 90,    lowerBetter: false, fmt: (x: number) => x.toFixed(0), clinicalNote: "Shuffling gait < 90 spm" },
-                { label: "Wrist Motion Energy", val: wristEnergy, threshold: 0.03,  lowerBetter: false, fmt: (x: number) => x.toFixed(4), clinicalNote: "Bradykinesia indicator" },
-                { label: "Forward Trunk Lean",  val: trunkLean,   threshold: 0.20,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "Camptocormia" },
-                { label: "Head Bob Amplitude",  val: headBob,     threshold: 0.04,  lowerBetter: true,  fmt: (x: number) => x.toFixed(4), clinicalNote: "Compensatory movement" },
-              ].filter(b => b.val != null) as Array<{label:string;val:number;threshold:number;lowerBetter:boolean;fmt:(x:number)=>string;clinicalNote:string}>;
+      {/* 📊 RESULT VISUALIZATION AREA */}
+      {result && (
+        <div className="medical-card p-12 bg-white border-t-8 border-t-medical-teal shadow-2xl animate-in fade-in zoom-in-95 duration-1000">
+          <div className="flex justify-between items-center mb-12">
+            <div>
+              <h2 className="text-3xl font-serif font-bold text-midnight mb-2">Screening Insights</h2>
+              <p className="text-slate font-medium uppercase text-xs tracking-widest opacity-60">Neural Biomarker Analysis Output</p>
+            </div>
+            <button
+              onClick={async () => {
+                const patient = patients.find(p => p.id === selectedPatient);
+                if (patient) await generateReport(patient, result);
+              }}
+              className="flex items-center gap-3 px-6 py-3 rounded-xl bg-slate/5 border border-slate/10 text-midnight font-bold text-sm hover:bg-slate/10 transition-all"
+            >
+              <span className="material-symbols-outlined text-xl leading-none">picture_as_pdf</span>
+              Download Analysis Report
+            </button>
+          </div>
 
-              const flagged = biomarkers.filter(b =>
-                b.lowerBetter ? b.val > b.threshold : b.val < b.threshold
-              ).length;
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-16">
+            {[
+              { key: "voiceConfidence", label: "Vocal Dysarthria", icon: "mic" },
+              { key: "handwritingConfidence", label: "Handwriting", icon: "draw" },
+              { key: "tremorConfidence", label: "Resting Tremor", icon: "vibration" },
+              { key: "visualConfidence", label: "Gait & Posture", icon: "directions_walk" },
+              { key: "reactionTimeMs", label: "Reaction Time", icon: "timer" },
+            ].map(({ key, label, icon }) => {
+              let val = result[key];
+              if (val == null) return null;
+
+              let displayVal = `${Math.round(val * 100)}%`;
+              let subLabel = "Confidence";
+              let riskVal = val;
+
+              if (key === "reactionTimeMs") {
+                displayVal = `${val}ms`;
+                subLabel = "Clinical Average";
+                // Risk-based color mapping for reaction time
+                riskVal = val > 400 ? (val - 400) / 200 : 0;
+                riskVal = Math.min(1, Math.max(0, riskVal));
+              }
+
+              const colorClass = riskVal >= 0.75 ? "text-medical-red" : riskVal >= 0.5 ? "text-medical-amber" : "text-medical-teal";
+              const bgColorClass = riskVal >= 0.75 ? "bg-medical-red" : riskVal >= 0.5 ? "bg-medical-amber" : "bg-medical-teal";
 
               return (
-                <div className="mt-8 rounded-xl overflow-hidden border border-[#afc6ff]/20 shadow-[0_0_30px_rgba(175,198,255,0.05)]">
-
-                  {/* ── Section header ── */}
-                  <div className="px-5 py-3 bg-[#0d1120] border-b border-[#2a2f3a] flex items-center gap-3">
-                    <span className="material-symbols-outlined text-[#afc6ff]">accessibility_new</span>
-                    <div>
-                      <h3 className="font-bold text-sm text-[#e1e2eb]">Gait & Posture Analysis</h3>
-                      <p className="text-[10px] text-[#8c90a0] mt-0.5">{backendLabel}</p>
+                <div key={key} className="p-6 bg-slate/5 rounded-3xl border border-slate/10 transition-all hover:bg-white hover:shadow-xl group flex flex-col h-full">
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-white border border-slate/10 flex items-center justify-center text-slate group-hover:bg-midnight group-hover:text-white transition-all">
+                      <span className="material-symbols-outlined text-2xl">{icon}</span>
                     </div>
-                    <div className="ml-auto flex items-center gap-2">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        flagged >= 3 ? "bg-red-500/20 text-red-400" :
-                        flagged >= 1 ? "bg-amber-500/20 text-amber-400" :
-                                       "bg-emerald-500/20 text-emerald-400"
-                      }`}>
-                        {flagged} / {biomarkers.length} markers flagged
-                      </span>
+                    <div className="text-right">
+                      <p className={`font-serif font-bold text-2xl ${colorClass}`}>{displayVal}</p>
+                      <p className="text-[9px] text-slate font-bold uppercase tracking-widest">{subLabel}</p>
                     </div>
                   </div>
 
-                  <div className={`grid ${v.annotated_image_url ? "md:grid-cols-[1fr_1.1fr]" : "grid-cols-1"} gap-0`}>
+                  <p className="text-[10px] text-slate font-bold uppercase tracking-widest mb-4">{label}</p>
 
-                    {/* ── Annotated skeleton image (only if available) ── */}
-                    {v.annotated_image_url && (
-                      <div className="bg-[#060810] flex items-center justify-center p-3 border-r border-[#2a2f3a]">
-                        <div className="w-full">
-                          <p className="text-[10px] text-[#8c90a0] mb-2 text-center uppercase tracking-widest font-semibold">
-                            Best-quality pose frame
-                          </p>
-                          <img
-                            src={`http://localhost:8080${v.annotated_image_url}`}
-                            alt="Annotated gait skeleton"
-                            className="rounded-lg w-full object-contain max-h-80"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  <div className="flex-1">
+                    {/* Visual Waveform Simulation */}
+                    {(key === "voiceConfidence" || key === "tremorConfidence") && (
+                      <div className="h-12 flex items-center gap-0.5 mt-4 px-2">
+                        {[...Array(15)].map((_, i) => (
+                          <div
+                            key={i}
+                            className={`w-1 rounded-full ${bgColorClass} opacity-30`}
+                            style={{
+                              height: `${Math.random() * (riskVal > 0.5 ? 80 : 40) + 20}%`,
+                              animationDelay: `${i * 0.05}s`
+                            }}
                           />
-                          <div className="mt-2 flex justify-center gap-4 text-[10px]">
-                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block"/>Flagged joint</span>
-                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/>Normal</span>
-                          </div>
-                        </div>
+                        ))}
                       </div>
                     )}
 
-                    {/* ── Biomarker table ── */}
-                    <div className="p-5 bg-[#090c14]">
-                      <p className="text-[10px] text-[#8c90a0] mb-3 font-semibold uppercase tracking-widest">
-                        Clinical Biomarker Findings
-                      </p>
-
-                      <div className="space-y-1.5">
-                        {biomarkers.map(({ label, val, threshold, lowerBetter, fmt, clinicalNote }) => {
-                          const risk = lowerBetter ? val > threshold : val < threshold;
-                          const pct  = Math.min(100, (lowerBetter
-                            ? (val / (threshold * 2)) * 100
-                            : (1 - val / (threshold * 2)) * 100
-                          ));
-                          return (
-                            <div key={label} className="group">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <div className="flex items-center gap-2">
-                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${risk ? "bg-red-400" : "bg-emerald-400"}`}/>
-                                  <span className="text-xs text-[#c8cadc] font-medium">{label}</span>
-                                  <span className="text-[10px] text-[#505468] hidden group-hover:inline">{clinicalNote}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-[#8c90a0] font-mono">{fmt(val)}</span>
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold min-w-[52px] text-center ${
-                                    risk
-                                      ? "bg-red-500/15 text-red-400 border border-red-500/20"
-                                      : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
-                                  }`}>
-                                    {risk ? "⚠ RISK" : "✓ OK"}
-                                  </span>
-                                </div>
-                              </div>
-                              {/* Progress bar */}
-                              <div className="h-0.5 rounded-full bg-[#1a1f2a] overflow-hidden ml-3.5">
-                                <div
-                                  className={`h-full rounded-full transition-all ${risk ? "bg-red-400/50" : "bg-emerald-400/50"}`}
-                                  style={{ width: `${Math.min(100, Math.max(5, pct))}%` }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
+                    {key === "handwritingConfidence" && result.handwriting?.annotated_image && (
+                      <div className="mt-4 rounded-xl overflow-hidden border border-slate/10 bg-white p-2">
+                        <p className="text-[8px] font-bold text-slate uppercase tracking-tighter mb-2">Automated Trace Analysis</p>
+                        <img
+                          src={`http://localhost:8080/uploads/${result.handwriting.annotated_image}`}
+                          alt="Handwriting Trace"
+                          className="w-full h-auto object-contain rounded-lg"
+                        />
                       </div>
+                    )}
 
-                      {/* Footer summary */}
-                      <div className="mt-4 pt-3 border-t border-[#1a1f2a] grid grid-cols-3 gap-2 text-center">
-                        {[
-                          { label: "Risk Score", value: `${((v.raw_risk_score ?? v.confidence ?? 0) * 100).toFixed(1)}%` },
-                          { label: "Confidence", value: `${((v.confidence ?? 0) * 100).toFixed(1)}%` },
-                          { label: "Backend",    value: isMediaPipe ? "MediaPipe" : "OpenCV" },
-                        ].map(({ label, value }) => (
-                          <div key={label} className="bg-[#0d1017] rounded-lg p-2">
-                            <p className="text-[9px] text-[#8c90a0] uppercase tracking-wider">{label}</p>
-                            <p className="text-xs font-bold text-[#afc6ff] mt-0.5">{value}</p>
-                          </div>
-                        ))}
+                    {key === "reactionTimeMs" && (
+                      <div className="mt-4 space-y-2">
+                         <div className="h-1.5 w-full bg-slate/10 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full ${bgColorClass} transition-all duration-1000`} 
+                              style={{ width: `${riskVal * 100}%` }}
+                            />
+                         </div>
+                         <p className="text-[8px] text-slate/50 font-bold uppercase tracking-widest text-center">Relative Latency Risk</p>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               );
-            })()}
-
-            {/* ⬇️ Download Report Button */}
-            <div className="mt-8 flex justify-center">
-              <button
-                onClick={async () => {
-                  const patient = patients.find(p => p.id === selectedPatient);
-                  if (patient) await generateReport(patient, result);
-                }}
-                className="flex items-center gap-2 px-8 py-3 rounded-full bg-gradient-to-r from-[#afc6ff] to-[#528dff] text-gray-900 font-bold text-sm hover:scale-105 transition shadow-[0_0_20px_rgba(175,198,255,0.4)]"
-              >
-                <span className="material-symbols-outlined text-[18px]">download</span>
-                Download Clinical Report
-              </button>
-            </div>
-
+            })}
           </div>
-        )}
 
-      </div>
+          <div className="max-w-4xl mx-auto py-12 border-t border-slate/10 relative">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white px-6 text-[10px] font-bold text-slate/40 uppercase tracking-[0.3em]">Aggregate Risk Profile</div>
+            <RiskGauge risk={result.finalRisk} level={result.riskLevel} />
+            <div className="text-center mt-12">
+              <div className={`inline-flex items-center gap-3 px-8 py-3 rounded-2xl font-bold text-sm tracking-widest uppercase border ${result.riskLevel === 'HIGH' ? 'bg-medical-red/10 text-medical-red border-medical-red/20' :
+                  result.riskLevel === 'MEDIUM' ? 'bg-medical-amber/10 text-medical-amber border-medical-amber/20' :
+                    'bg-medical-teal/10 text-medical-teal border-medical-teal/20'
+                }`}>
+                <span className="w-2.5 h-2.5 rounded-full bg-current animate-pulse"></span>
+                Screening Outcome: {result.riskLevel} Risk
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

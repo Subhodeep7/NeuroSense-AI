@@ -35,21 +35,20 @@ export default function MotionCapture({ type, onCapture }: Props) {
   const motionHandlerRef = useRef<((e: DeviceMotionEvent) => void) | null>(null);
 
   const DURATION = type === "gait" ? 30 : 15;
-  const label = type === "gait" ? "Gait Analysis" : "Rest Tremor";
+  const label = type === "gait" ? "Gait & Posture Analysis" : "Resting Tremor Analysis";
   const icon = type === "gait" ? "directions_walk" : "vibration";
 
   const instructions = type === "gait"
-    ? "Wear the device on your ankle. Stand up and press the button on the device, then walk normally for 30 seconds."
-    : "Wear the device on your wrist. Sit still, rest your hand on a flat surface, then press the button and stay relaxed for 15 seconds.";
+    ? "Attach the wearable sensor to your ankle. Stand upright and initiate the capture, then walk naturally for 30 seconds."
+    : "Secure the wearable sensor to your wrist. Sit in a relaxed position with your arm resting on a flat surface. Stay still for 15 seconds.";
 
   const phoneInstructions = type === "gait"
-    ? "Hold your phone in your hand or pocket and walk normally for 30 seconds."
-    : "Sit still. Rest your hand on a flat surface with the phone held loosely for 15 seconds.";
+    ? "Hold your mobile device securely or place it in a pocket. Walk at your natural pace for 30 seconds."
+    : "Sit in a comfortable, relaxed position. Hold your mobile device loosely in your palm and rest your hand on a flat surface.";
 
   // Auto-start wearable polling when tab switches to wearable (tremor only)
   useEffect(() => {
     if (tab === "wearable" && type === "tremor") {
-      // Snapshot the current latest ID so we only detect NEW captures
       fetch("http://localhost:8080/api/sensor/latest?mode=tremor")
         .then(r => r.json())
         .then(d => { lastPollId.current = d?.id ?? 0; })
@@ -66,7 +65,6 @@ export default function MotionCapture({ type, onCapture }: Props) {
             setWearableResult(data);
             if (pollRef.current) clearInterval(pollRef.current);
 
-            // Build payload blob — compact ESP32 features
             const payloadForML = {
               sample_count: data.sample_count, duration_ms: data.duration_ms,
               mean_ax: data.mean_ax, mean_ay: data.mean_ay, mean_az: data.mean_az,
@@ -97,13 +95,13 @@ export default function MotionCapture({ type, onCapture }: Props) {
   // Phone capture
   function startCapture() {
     if (typeof DeviceMotionEvent === "undefined") {
-      alert("Motion sensors not available. Try on a mobile phone browser.");
+      alert("Motion sensors not available. Please use a mobile browser.");
       return;
     }
     const requestPerm = (DeviceMotionEvent as any).requestPermission;
     if (typeof requestPerm === "function") {
       requestPerm().then((s: string) => {
-        if (s === "granted") beginListening(); else alert("Motion permission denied.");
+        if (s === "granted") beginListening(); else alert("Permission denied.");
       });
     } else {
       beginListening();
@@ -144,87 +142,84 @@ export default function MotionCapture({ type, onCapture }: Props) {
   }
 
   return (
-    <div className="bg-[#1d2026]/60 backdrop-blur-xl border border-[#2a2f3a] rounded-2xl p-6 relative">
-      <h3 className="font-bold text-[#afc6ff] flex items-center gap-2 mb-4">
-        <span className="material-symbols-outlined">{icon}</span>
-        {label}
-      </h3>
-
+    <div className="space-y-6">
       {/* Tab switcher — only shown for tremor (gait uses phone only) */}
-      {type === "tremor" && (
-        <div className="flex gap-2 mb-4 text-[#e1e2eb]">
-          <button
-            onClick={() => setTab("wearable")}
-            className={`px-3 py-1 text-xs rounded ${tab === "wearable" ? "bg-[#afc6ff] text-black" : "bg-[#272a31]"}`}
-          >
-            Wearable Device
-          </button>
+      <div className="flex justify-between items-center">
+        <div className="flex bg-slate/5 p-1 rounded-lg border border-slate/10">
+          {type === "tremor" && (
+            <button
+              onClick={() => setTab("wearable")}
+              className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${
+                tab === "wearable" ? "bg-white text-midnight shadow-sm" : "text-slate hover:text-midnight"
+              }`}
+            >
+              Wearable Sensor
+            </button>
+          )}
           <button
             onClick={() => setTab("phone")}
-            className={`px-3 py-1 text-xs rounded ${tab === "phone" ? "bg-[#afc6ff] text-black" : "bg-[#272a31]"}`}
+            className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${
+              tab === "phone" || type === "gait" ? "bg-white text-midnight shadow-sm" : "text-slate hover:text-midnight"
+            }`}
           >
-            Phone Sensor
+            Mobile Sensor
           </button>
         </div>
-      )}
-
-      {/* Gait: phone sensor only */}
-      {type === "gait" && (
-        <p className="text-[10px] text-[#afc6ff]/60 mb-3 bg-[#afc6ff]/5 border border-[#afc6ff]/15 rounded-lg px-3 py-1.5">
-          Gait analysis uses your phone's motion sensor or a walking video — no wearable required.
-        </p>
-      )}
+        
+        <div className="flex items-center gap-2 px-3 py-1 bg-slate/5 rounded-full border border-slate/10">
+           <span className="w-1.5 h-1.5 rounded-full bg-medical-teal animate-pulse"></span>
+           <span className="text-[9px] font-bold text-midnight uppercase tracking-widest">Sensor Active</span>
+        </div>
+      </div>
 
       {/* ── WEARABLE TAB ── */}
       {tab === "wearable" && (
-        <div className="space-y-4">
-          {/* Same device notice */}
-          <div className="flex items-center gap-2 text-[10px] text-[#afc6ff]/70 bg-[#afc6ff]/5 border border-[#afc6ff]/20 rounded-lg px-3 py-1.5">
-            <span className="material-symbols-outlined text-[14px]">info</span>
-            <span>It's the <strong className="text-[#afc6ff]">same ESP32 device</strong> — just worn differently for each test.</span>
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="p-5 bg-slate/[0.03] border-2 border-dashed border-slate/20 rounded-2xl">
+             <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined text-medical-teal text-xl">clinical_notes</span>
+                <p className="text-[11px] text-midnight font-medium leading-relaxed italic">{instructions}</p>
+             </div>
           </div>
 
-          <div className="bg-[#10131a] rounded-lg p-3 text-xs leading-relaxed text-[#8c90a0] border border-[#2a2f3a]">
-            {instructions}
-          </div>
-
-          <div className="rounded-lg border border-[#afc6ff]/30 bg-[#afc6ff]/5 p-4 flex gap-3 text-xs text-[#c2c6d7]">
-            <div className="text-2xl pt-1"><span className="material-symbols-outlined text-[#afc6ff]">router</span></div>
-            <div>
-              <p className="font-semibold text-white">ESP32 Node</p>
-              <p className="mt-1">Sends data over WiFi automatically after capture.</p>
-              <div className="flex gap-2 mt-2">
-                <span className="bg-[#afc6ff]/20 text-[#afc6ff] px-1.5 py-0.5 rounded">Ready</span>
-                {wearableStatus === "waiting" && (
-                  <span className="bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded animate-pulse">Listening...</span>
-                )}
-                {wearableStatus === "received" && (
-                  <span className="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Data Received</span>
-                )}
-              </div>
-            </div>
+          <div className="grid grid-cols-2 gap-4">
+             <div className="p-5 rounded-2xl border border-slate/10 bg-white shadow-sm flex flex-col items-center text-center">
+                <div className="w-10 h-10 rounded-xl bg-slate/5 flex items-center justify-center mb-3">
+                   <span className="material-symbols-outlined text-slate text-xl">hub</span>
+                </div>
+                <p className="text-[10px] font-bold text-midnight uppercase tracking-widest mb-1">Device Node</p>
+                <p className="text-[9px] text-slate font-medium uppercase tracking-tighter">NeuroSense V2.0</p>
+             </div>
+             <div className="p-5 rounded-2xl border border-slate/10 bg-white shadow-sm flex flex-col items-center text-center">
+                <div className="w-10 h-10 rounded-xl bg-slate/5 flex items-center justify-center mb-3">
+                   <span className="material-symbols-outlined text-slate text-xl">wifi_tethering</span>
+                </div>
+                <p className="text-[10px] font-bold text-midnight uppercase tracking-widest mb-1">Status</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                   {wearableStatus === "waiting" && <span className="w-1.5 h-1.5 rounded-full bg-medical-amber animate-pulse"></span>}
+                   {wearableStatus === "received" && <span className="w-1.5 h-1.5 rounded-full bg-medical-teal"></span>}
+                   <p className={`text-[9px] font-bold uppercase tracking-widest ${wearableStatus === 'received' ? 'text-medical-teal' : 'text-medical-amber'}`}>
+                      {wearableStatus === "received" ? "Sync Complete" : "Waiting..."}
+                   </p>
+                </div>
+             </div>
           </div>
 
           {wearableStatus === "waiting" && (
-            <div className="text-center space-y-2 py-2">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <div className="w-3 h-3 rounded-full animate-ping bg-[#afc6ff]" />
-                <span className="text-sm font-medium text-[#afc6ff]">Listening for wearable...</span>
-              </div>
-              <p className="text-xs text-[#8c90a0]">Press device button</p>
+            <div className="flex flex-col items-center py-4">
+              <div className="w-12 h-12 rounded-full border-2 border-slate/10 border-t-medical-teal animate-spin mb-4"></div>
+              <p className="text-[10px] font-bold text-slate uppercase tracking-[0.2em]">Listening for telemetry data...</p>
             </div>
           )}
 
           {wearableStatus === "received" && (
-            <div className="text-center space-y-1">
-              <p className="text-[#6ee7b7] font-bold text-sm">Data received!</p>
-              {wearableResult && (
-                <p className="text-xs text-[#8c90a0]">
-                  {wearableResult.sampleCount ?? "–"} samples &bull; {wearableResult.mode}
-                </p>
-              )}
-              <button onClick={() => { setWearableStatus("waiting"); }} className="text-xs text-[#afc6ff] underline transition hover:text-white mt-1">
-                Wait for next capture
+            <div className="p-4 rounded-xl bg-medical-teal/5 border border-medical-teal/10 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                 <span className="material-symbols-outlined text-medical-teal">verified</span>
+                 <p className="text-[10px] font-bold text-midnight uppercase tracking-widest">Multimodal Telemetry Verified</p>
+              </div>
+              <button onClick={() => { setWearableStatus("waiting"); }} className="text-[9px] font-bold text-slate uppercase tracking-widest hover:text-midnight transition-colors underline">
+                Retest
               </button>
             </div>
           )}
@@ -233,38 +228,64 @@ export default function MotionCapture({ type, onCapture }: Props) {
 
       {/* ── PHONE SENSOR TAB ── */}
       {tab === "phone" && (
-        <div className="text-center space-y-4">
-          <p className="text-xs bg-[#10131a] p-3 rounded-lg text-[#8c90a0] border border-[#2a2f3a] text-left">{phoneInstructions}</p>
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="p-5 bg-slate/[0.03] border-2 border-dashed border-slate/20 rounded-2xl">
+             <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined text-medical-teal text-xl">smartphone</span>
+                <p className="text-[11px] text-midnight font-medium leading-relaxed italic">{phoneInstructions}</p>
+             </div>
+          </div>
 
-          {!capturing && !done && (
-            <button onClick={startCapture} className="w-full py-3 bg-[#afc6ff] text-gray-900 rounded-xl font-bold transition hover:scale-105 shadow-[0_0_20px_rgba(175,198,255,0.4)]">
-              Start Capture ({DURATION}s)
-            </button>
-          )}
-
-          {capturing && (
-            <div className="space-y-4">
-              <div className="text-4xl font-extrabold text-[#afc6ff]">{timeLeft}s</div>
-              <div className="w-full bg-[#10131a] rounded-full h-2 border border-[#2a2f3a]">
-                <div className="h-full rounded-full transition-all bg-[#afc6ff] shadow-[0_0_10px_rgba(175,198,255,0.5)]" style={{ width: `${((DURATION - timeLeft) / DURATION) * 100}%` }} />
-              </div>
-              <p className="text-xs text-[#8c90a0]">{sampleCount} samples collected</p>
-              <button onClick={finishCapture} className="text-xs text-red-500 underline transition hover:text-red-400">Stop early</button>
-            </div>
-          )}
-
-          {done && (
-            <div>
-              <p className="text-[#6ee7b7] text-sm font-bold">✓ {sampleCount} samples captured</p>
-              <button onClick={() => { setDone(false); setSampleCount(0); }} className="text-xs text-[#afc6ff] underline mt-2 transition hover:text-white">
-                Re-capture
+          <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white border-2 border-dashed border-slate/20 shadow-inner min-h-[160px]">
+            {!capturing && !done && (
+              <button onClick={startCapture} className="btn-premium w-full max-w-[200px]">
+                Start Capture
               </button>
-            </div>
-          )}
+            )}
 
-          <p className="text-xs text-[#8c90a0] italic">⚠️ Open on mobile phone for motion sensor access</p>
+            {capturing && (
+              <div className="w-full space-y-6">
+                <div className="flex justify-between items-end">
+                   <div className="text-left">
+                      <p className="text-[10px] font-bold text-slate uppercase tracking-widest mb-1">Time Remaining</p>
+                      <p className="text-4xl font-serif font-bold text-midnight leading-none">{timeLeft}s</p>
+                   </div>
+                   <div className="text-right">
+                      <p className="text-[10px] font-bold text-slate uppercase tracking-widest mb-1">Samples</p>
+                      <p className="text-xl font-serif font-bold text-medical-teal leading-none">{sampleCount}</p>
+                   </div>
+                </div>
+                <div className="w-full bg-slate/5 rounded-full h-2 overflow-hidden border border-slate/10">
+                  <div className="h-full bg-medical-teal shadow-[0_0_10px_rgba(20,184,166,0.3)] transition-all duration-300" style={{ width: `${((DURATION - timeLeft) / DURATION) * 100}%` }} />
+                </div>
+                <button onClick={finishCapture} className="text-[10px] font-bold text-medical-red uppercase tracking-widest hover:underline transition-all">
+                   Terminate Early
+                </button>
+              </div>
+            )}
+
+            {done && (
+              <div className="flex flex-col items-center gap-4 animate-in zoom-in duration-500">
+                <div className="w-12 h-12 rounded-full bg-medical-teal/10 flex items-center justify-center text-medical-teal mb-2">
+                   <span className="material-symbols-outlined text-2xl">check</span>
+                </div>
+                <div className="text-center">
+                   <p className="text-[10px] font-bold text-midnight uppercase tracking-widest mb-1">Capture Complete</p>
+                   <p className="text-[9px] text-slate font-medium uppercase tracking-widest">{sampleCount} Samples Collected</p>
+                </div>
+                <button onClick={() => { setDone(false); setSampleCount(0); }} className="text-[10px] font-bold text-slate uppercase tracking-widest hover:text-midnight transition-colors underline">
+                  Retry Capture
+                </button>
+              </div>
+            )}
+          </div>
+
+          <p className="text-center text-[9px] text-slate/40 font-bold uppercase tracking-widest">
+             Note: Ensure mobile device remains securely oriented during the assessment.
+          </p>
         </div>
       )}
     </div>
   );
 }
+
