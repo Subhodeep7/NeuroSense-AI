@@ -231,12 +231,163 @@ function PredictionPage() {
               </span>
             </div>
 
+            {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                VISUAL GAIT ANALYSIS
+                Shows whenever result.visual exists (not gated on image).
+                Normalises field names across MediaPipe + OpenCV backends.
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            {result.visual && (() => {
+              const v = result.visual;
+
+              // ── Field normalisation: MediaPipe keys first, OpenCV fallback ──
+              // MediaPipe: arm_swing_asymmetry  |  OpenCV: upper_arm_asym
+              // MediaPipe: step_asymmetry       |  OpenCV: step_asym
+              // MediaPipe: stride_cov           |  OpenCV: flow_cov
+              // MediaPipe: wrist_motion_energy  |  OpenCV: avg_flow
+              // MediaPipe: trunk_sway / cadence_spm  (no OpenCV equivalent → undefined)
+              const armAsym      = v.arm_swing_asymmetry ?? v.upper_arm_asym;
+              const stepAsym     = v.step_asymmetry      ?? v.step_asym;
+              const trunkSway    = v.trunk_sway;
+              const strideCov    = v.stride_cov          ?? v.flow_cov;
+              const cadence      = v.cadence_spm;
+              const wristEnergy  = v.wrist_motion_energy ?? v.avg_flow;
+              const trunkLean    = v.trunk_lean_avg;
+              const headBob      = v.head_bob_std;
+
+              const backend      = v.backend ?? "visual";
+              const isMediaPipe  = backend.includes("mediapipe");
+              const backendLabel = isMediaPipe
+                ? `MediaPipe Pose · ${v.frames_analyzed ?? "?"} frames @ ${v.fps ?? "?"} fps`
+                : `OpenCV Motion Analysis · ${v.frames_analyzed ?? "?"} frames`;
+
+              const biomarkers = [
+                { label: "Arm Swing Asymmetry", val: armAsym,     threshold: 0.25,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "PD hallmark — one arm freezes" },
+                { label: "Step Asymmetry",      val: stepAsym,    threshold: 0.20,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "Foot placement irregularity" },
+                { label: "Trunk Sway",          val: trunkSway,   threshold: 0.045, lowerBetter: true,  fmt: (x: number) => x.toFixed(4), clinicalNote: "Postural instability" },
+                { label: "Stride Variability",  val: strideCov,   threshold: 0.25,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "Festination / irregular cadence" },
+                { label: "Cadence (steps/min)", val: cadence,     threshold: 90,    lowerBetter: false, fmt: (x: number) => x.toFixed(0), clinicalNote: "Shuffling gait < 90 spm" },
+                { label: "Wrist Motion Energy", val: wristEnergy, threshold: 0.03,  lowerBetter: false, fmt: (x: number) => x.toFixed(4), clinicalNote: "Bradykinesia indicator" },
+                { label: "Forward Trunk Lean",  val: trunkLean,   threshold: 0.20,  lowerBetter: true,  fmt: (x: number) => x.toFixed(3), clinicalNote: "Camptocormia" },
+                { label: "Head Bob Amplitude",  val: headBob,     threshold: 0.04,  lowerBetter: true,  fmt: (x: number) => x.toFixed(4), clinicalNote: "Compensatory movement" },
+              ].filter(b => b.val != null) as Array<{label:string;val:number;threshold:number;lowerBetter:boolean;fmt:(x:number)=>string;clinicalNote:string}>;
+
+              const flagged = biomarkers.filter(b =>
+                b.lowerBetter ? b.val > b.threshold : b.val < b.threshold
+              ).length;
+
+              return (
+                <div className="mt-8 rounded-xl overflow-hidden border border-[#afc6ff]/20 shadow-[0_0_30px_rgba(175,198,255,0.05)]">
+
+                  {/* ── Section header ── */}
+                  <div className="px-5 py-3 bg-[#0d1120] border-b border-[#2a2f3a] flex items-center gap-3">
+                    <span className="material-symbols-outlined text-[#afc6ff]">accessibility_new</span>
+                    <div>
+                      <h3 className="font-bold text-sm text-[#e1e2eb]">Gait & Posture Analysis</h3>
+                      <p className="text-[10px] text-[#8c90a0] mt-0.5">{backendLabel}</p>
+                    </div>
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                        flagged >= 3 ? "bg-red-500/20 text-red-400" :
+                        flagged >= 1 ? "bg-amber-500/20 text-amber-400" :
+                                       "bg-emerald-500/20 text-emerald-400"
+                      }`}>
+                        {flagged} / {biomarkers.length} markers flagged
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className={`grid ${v.annotated_image_url ? "md:grid-cols-[1fr_1.1fr]" : "grid-cols-1"} gap-0`}>
+
+                    {/* ── Annotated skeleton image (only if available) ── */}
+                    {v.annotated_image_url && (
+                      <div className="bg-[#060810] flex items-center justify-center p-3 border-r border-[#2a2f3a]">
+                        <div className="w-full">
+                          <p className="text-[10px] text-[#8c90a0] mb-2 text-center uppercase tracking-widest font-semibold">
+                            Best-quality pose frame
+                          </p>
+                          <img
+                            src={`http://localhost:8080${v.annotated_image_url}`}
+                            alt="Annotated gait skeleton"
+                            className="rounded-lg w-full object-contain max-h-80"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                          <div className="mt-2 flex justify-center gap-4 text-[10px]">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block"/>Flagged joint</span>
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/>Normal</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Biomarker table ── */}
+                    <div className="p-5 bg-[#090c14]">
+                      <p className="text-[10px] text-[#8c90a0] mb-3 font-semibold uppercase tracking-widest">
+                        Clinical Biomarker Findings
+                      </p>
+
+                      <div className="space-y-1.5">
+                        {biomarkers.map(({ label, val, threshold, lowerBetter, fmt, clinicalNote }) => {
+                          const risk = lowerBetter ? val > threshold : val < threshold;
+                          const pct  = Math.min(100, (lowerBetter
+                            ? (val / (threshold * 2)) * 100
+                            : (1 - val / (threshold * 2)) * 100
+                          ));
+                          return (
+                            <div key={label} className="group">
+                              <div className="flex items-center justify-between mb-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${risk ? "bg-red-400" : "bg-emerald-400"}`}/>
+                                  <span className="text-xs text-[#c8cadc] font-medium">{label}</span>
+                                  <span className="text-[10px] text-[#505468] hidden group-hover:inline">{clinicalNote}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-[#8c90a0] font-mono">{fmt(val)}</span>
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold min-w-[52px] text-center ${
+                                    risk
+                                      ? "bg-red-500/15 text-red-400 border border-red-500/20"
+                                      : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+                                  }`}>
+                                    {risk ? "⚠ RISK" : "✓ OK"}
+                                  </span>
+                                </div>
+                              </div>
+                              {/* Progress bar */}
+                              <div className="h-0.5 rounded-full bg-[#1a1f2a] overflow-hidden ml-3.5">
+                                <div
+                                  className={`h-full rounded-full transition-all ${risk ? "bg-red-400/50" : "bg-emerald-400/50"}`}
+                                  style={{ width: `${Math.min(100, Math.max(5, pct))}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Footer summary */}
+                      <div className="mt-4 pt-3 border-t border-[#1a1f2a] grid grid-cols-3 gap-2 text-center">
+                        {[
+                          { label: "Risk Score", value: `${((v.raw_risk_score ?? v.confidence ?? 0) * 100).toFixed(1)}%` },
+                          { label: "Confidence", value: `${((v.confidence ?? 0) * 100).toFixed(1)}%` },
+                          { label: "Backend",    value: isMediaPipe ? "MediaPipe" : "OpenCV" },
+                        ].map(({ label, value }) => (
+                          <div key={label} className="bg-[#0d1017] rounded-lg p-2">
+                            <p className="text-[9px] text-[#8c90a0] uppercase tracking-wider">{label}</p>
+                            <p className="text-xs font-bold text-[#afc6ff] mt-0.5">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ⬇️ Download Report Button */}
             <div className="mt-8 flex justify-center">
               <button
-                onClick={() => {
+                onClick={async () => {
                   const patient = patients.find(p => p.id === selectedPatient);
-                  if (patient) generateReport(patient, result);
+                  if (patient) await generateReport(patient, result);
                 }}
                 className="flex items-center gap-2 px-8 py-3 rounded-full bg-gradient-to-r from-[#afc6ff] to-[#528dff] text-gray-900 font-bold text-sm hover:scale-105 transition shadow-[0_0_20px_rgba(175,198,255,0.4)]"
               >

@@ -18,6 +18,7 @@ scipy                  # Butterworth filter, Welch PSD (gait + tremor)
 # ── Image / Video / Computer Vision ────────────────────────────
 pillow
 opencv-python          # visual_analysis.py (video frame processing)
+mediapipe>=0.10.13         # Tasks API — pose_landmarker_full.task auto-downloaded on first run
 
 # ── Data & Utilities ───────────────────────────────────────────
 numpy

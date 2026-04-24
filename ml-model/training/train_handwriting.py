@@ -113,7 +113,7 @@ class SpiralDataset(Dataset):
     def __init__(self, root_dir, transform=None):
         self.transform = transform
         self.samples   = []
-        for label, cls in enumerate(["healthy", "parkinsons"]):
+        for label, cls in enumerate(["Healthy", "Parkinson"]):
             cls_dir = os.path.join(root_dir, cls)
             if not os.path.exists(cls_dir):
                 print(f"  [WARNING] Missing folder: {cls_dir}")

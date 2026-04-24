@@ -49,6 +49,10 @@ env/
 # Training logs & temp scripts
 ml-model/training/training_log.txt
 ml-model/training/scan_healthy_folder.py
+ml-model/training/fix_dataset_labels.py
+
+# MediaPipe Tasks model — auto-downloaded at runtime (pose_landmarker_full.task)
+ml-model/inference/pose_landmarker_full.task
 
 # Training datasets (raw images/audio — too large for git)
 ml-model/training/handwriting_dataset/

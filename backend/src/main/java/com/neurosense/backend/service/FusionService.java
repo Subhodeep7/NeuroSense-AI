@@ -42,10 +42,13 @@ public class FusionService {
         double tremorConf      = getConf(tremorResult);
         double visualConf      = getConf(visualResult);
 
-        // Reaction Time Scoring: normal ~250ms, Parkinsonian often >400ms
+        // Reaction Time Scoring: healthy baseline ≤400ms → zero risk.
+        // Parkinsonian responses typically >500ms.
+        // Formula: anything ≤400ms clamps to 0.0; risk rises linearly above 400ms,
+        // reaching 1.0 at 750ms (400 + 350).
         double reactionConf = 0.0;
         if (reactionTimeMs != null && reactionTimeMs > 0) {
-            reactionConf = Math.min(1.0, Math.max(0.0, (reactionTimeMs - 250.0) / 350.0));
+            reactionConf = Math.min(1.0, Math.max(0.0, (reactionTimeMs - 400.0) / 350.0));
         }
 
         // Base weights per modality

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.util.HashMap;
 import java.util.Map;
 
 @Service
@@ -17,19 +18,21 @@ public class VisualPredictionService {
     @Value("${app.project.dir}")
     private String projectDir;
 
+    @Value("${app.upload.dir}")
+    private String uploadDir;
+
     public Map<String, Object> predict(String videoFilePath) {
         try {
-            ProcessBuilder pb = new ProcessBuilder("python", SCRIPT_PATH, videoFilePath);
-
-            // Set working directory to project root so relative script path resolves correctly
+            // Pass uploadDir as 2nd arg so Python saves annotated frame there
+            ProcessBuilder pb = new ProcessBuilder(
+                    "python", SCRIPT_PATH, videoFilePath, uploadDir
+            );
             pb.directory(new File(projectDir));
-
-            // Do NOT merge stderr into stdout — Python warnings would corrupt the JSON.
             pb.redirectErrorStream(false);
 
             Process process = pb.start();
 
-            // Drain stderr on a background thread so the process doesn't block.
+            // Drain stderr so process doesn't block
             Thread stderrDrainer = new Thread(() -> {
                 try (BufferedReader errReader = new BufferedReader(
                         new InputStreamReader(process.getErrorStream()))) {
@@ -42,11 +45,10 @@ public class VisualPredictionService {
             stderrDrainer.setDaemon(true);
             stderrDrainer.start();
 
-            // Read only stdout for JSON parsing.
+            // Read stdout for JSON
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             String jsonLine = null;
             String line;
-
             while ((line = reader.readLine()) != null) {
                 System.out.println("VISUAL MODEL OUTPUT: " + line);
                 if (jsonLine == null && line.trim().startsWith("{")) {
@@ -62,7 +64,15 @@ public class VisualPredictionService {
             }
 
             ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(jsonLine, Map.class);
+            Map<String, Object> result = new HashMap<>(mapper.readValue(jsonLine, Map.class));
+
+            // Convert annotated image filename → public URL served by WebConfig
+            if (result.containsKey("annotated_image_filename")) {
+                String filename = (String) result.get("annotated_image_filename");
+                result.put("annotated_image_url", "/uploads/" + filename);
+            }
+
+            return result;
 
         } catch (Exception e) {
             e.printStackTrace();

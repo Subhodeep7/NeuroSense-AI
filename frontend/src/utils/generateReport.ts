@@ -13,7 +13,20 @@ interface PredictionResult {
   handwriting?: { confidence: number };
   gait?: { confidence: number };
   tremor?: { confidence: number };
-  visual?: { confidence: number };
+  visual?: {
+    confidence: number;
+    annotated_image_url?: string;
+    arm_swing_asymmetry?: number;
+    step_asymmetry?: number;
+    trunk_sway?: number;
+    stride_cov?: number;
+    cadence_spm?: number;
+    wrist_motion_energy?: number;
+    biomarkers_positive?: number;
+    biomarkers_total?: number;
+    backend?: string;
+    frames_analyzed?: number;
+  };
   reactionTimeMs?: number;
   finalRisk: number;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
@@ -32,7 +45,24 @@ function toPercent(val: number | undefined | null): string {
   return (val * 100).toFixed(1) + "%";
 }
 
-export function generateReport(patient: Patient, result: PredictionResult) {
+// Fetch image URL and return base64 data URI for jsPDF embedding
+async function fetchImageAsBase64(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function generateReport(patient: Patient, result: PredictionResult) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const now = result.createdAt ? new Date(result.createdAt) : new Date();
@@ -182,6 +212,69 @@ export function generateReport(patient: Patient, result: PredictionResult) {
   const splitReco = doc.splitTextToSize(reco, pageW - 28);
   doc.text(splitReco, 14, barY + 38);
 
+  // ── Gait Visual Analysis (MediaPipe annotated frame) ──────────────────────
+  const visualObj = result.visual;
+  if (visualObj?.annotated_image_url) {
+    doc.addPage();
+    const pageW2 = doc.internal.pageSize.getWidth();
+
+    // Page header
+    doc.setFillColor(15, 20, 35);
+    doc.rect(0, 0, pageW2, 18, "F");
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(175, 198, 255);
+    doc.text("Gait Visual Analysis — MediaPipe Pose", 14, 12);
+
+    // Annotated skeleton image (left column)
+    const imgUrl = `http://localhost:8080${visualObj.annotated_image_url}`;
+    const imgData = await fetchImageAsBase64(imgUrl);
+    if (imgData) {
+      doc.addImage(imgData, "PNG", 14, 24, 90, 68);
+    }
+
+    // Biomarker table (right column)
+    const bRows = [
+      ["Arm Swing Asymmetry", visualObj.arm_swing_asymmetry?.toFixed(3) ?? "—", (visualObj.arm_swing_asymmetry ?? 0) > 0.25 ? "RISK" : "OK"],
+      ["Step Asymmetry",      visualObj.step_asymmetry?.toFixed(3)      ?? "—", (visualObj.step_asymmetry ?? 0)      > 0.20 ? "RISK" : "OK"],
+      ["Trunk Sway",          visualObj.trunk_sway?.toFixed(4)          ?? "—", (visualObj.trunk_sway ?? 0)          > 0.045? "RISK" : "OK"],
+      ["Stride CoV",          visualObj.stride_cov?.toFixed(3)          ?? "—", (visualObj.stride_cov ?? 0)          > 0.25 ? "RISK" : "OK"],
+      ["Cadence (spm)",       visualObj.cadence_spm?.toFixed(0)         ?? "—", (visualObj.cadence_spm ?? 999) < 90   ? "RISK" : "OK"],
+      ["Wrist Energy",        visualObj.wrist_motion_energy?.toFixed(4) ?? "—", (visualObj.wrist_motion_energy ?? 1) < 0.03 ? "RISK" : "OK"],
+    ];
+
+    autoTable(doc, {
+      startY: 24,
+      margin: { left: 112 },
+      head: [["Biomarker", "Value", "Status"]],
+      body: bRows,
+      theme: "striped",
+      headStyles: { fillColor: [29, 32, 38], textColor: [175, 198, 255], fontStyle: "bold", fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: {
+        2: {
+          fontStyle: "bold",
+          textColor: [80, 80, 80],
+        },
+      },
+      didParseCell(data) {
+        if (data.column.index === 2 && data.section === "body") {
+          data.cell.styles.textColor = data.cell.raw === "RISK" ? [220, 38, 38] : [16, 185, 129];
+        }
+      },
+    });
+
+    // Summary badge
+    const afterBiomarkers = (doc as any).lastAutoTable.finalY + 6;
+    doc.setFontSize(9);
+    doc.setTextColor(140, 144, 160);
+    doc.setFont("helvetica", "normal");
+    doc.text(
+      `Biomarkers positive: ${visualObj.biomarkers_positive ?? "—"} / ${visualObj.biomarkers_total ?? "—"}   ·   Backend: ${visualObj.backend ?? "opencv_motion"}   ·   Frames: ${visualObj.frames_analyzed ?? "—"}`,
+      112, afterBiomarkers
+    );
+  }
+
   // ── Footer ─────────────────────────────────────────────────
   const footerY = doc.internal.pageSize.getHeight() - 12;
   doc.setFillColor(15, 20, 35);
@@ -203,7 +296,7 @@ function riskTag(val: number): string {
 }
 
 function reactionTag(ms: number): string {
-  if (ms > 500) return "SLOW (High Risk)";
-  if (ms > 300) return "MODERATE";
+  if (ms > 650) return "SLOW (High Risk)";
+  if (ms > 400) return "MODERATE";
   return "NORMAL";
 }
