@@ -221,11 +221,22 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     step_asym_pd = step_asym > 0.18
 
     # ── BIOMARKER 3: Trunk Lateral Sway ────────────────────────────────────────
-    # FIX C2: normalize shoulder midpoint x-variance by shoulder width.
-    shoulder_mid_x = [(f['l_shoulder_x'] + f['r_shoulder_x']) / 2 for f in good_frames]
-    trunk_sway     = float(np.std(shoulder_mid_x)) / ref_width
-    # >8% of shoulder width = pathological lateral sway
-    trunk_sway_pd  = trunk_sway > 0.08
+    # FIX: Detrend x-signal (remove walking-direction drift); residual = true sway.
+    # Validate with zero-crossing rate: rhythmic sway crosses mean > 0.3x per 10 frames.
+    shoulder_mid_x_arr  = np.array([(f['l_shoulder_x'] + f['r_shoulder_x']) / 2
+                                     for f in good_frames])
+    x_idx               = np.arange(len(shoulder_mid_x_arr))
+    trend_coeffs        = np.polyfit(x_idx, shoulder_mid_x_arr, 1)
+    shoulder_mid_x_dt   = shoulder_mid_x_arr - np.polyval(trend_coeffs, x_idx)
+    sway_mean           = float(np.mean(shoulder_mid_x_dt))
+    sway_crosses        = int(np.sum(np.diff(np.sign(shoulder_mid_x_dt - sway_mean)) != 0))
+    sway_cross_rate     = sway_crosses / max(1, n / 10)
+    trunk_sway_raw      = float(np.std(shoulder_mid_x_arr)) / ref_width
+    trunk_sway          = float(np.std(shoulder_mid_x_dt))  / ref_width
+    trunk_sway_pd       = trunk_sway > 0.08 and sway_cross_rate > 0.3
+    print(f"[TrunkSway] raw={trunk_sway_raw:.4f}  detrended={trunk_sway:.4f}  "
+          f"cross_rate={sway_cross_rate:.2f}  flagged={trunk_sway_pd}",
+          file=sys.stderr, flush=True)
 
     # ── BIOMARKER 4: Forward Trunk Lean (Camptocormia) ─────────────────────────
     # FIX C1: use HORIZONTAL (x-axis) shoulder displacement relative to hip,
