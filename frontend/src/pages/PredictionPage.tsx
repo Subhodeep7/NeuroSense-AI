@@ -233,7 +233,7 @@ function PredictionPage() {
             </div>
 
             <div className="mt-6 p-4 rounded-xl bg-slate/5 border border-slate/10">
-              <p className="text-[10px] text-slate font-bold uppercase tracking-widest mb-1">Methodology</p>
+              <p className="text-[10px] text-slate font-bold uppercase tracking-widest mb-1">How to Use</p>
               <p className="text-[10px] text-slate/70 font-medium">
                 Press the <span className="text-midnight font-bold">SPACEBAR</span> as soon as it turns green. We exclude the slowest trial for outlier suppression.
               </p>

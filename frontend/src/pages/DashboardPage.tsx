@@ -84,10 +84,7 @@ export default function DashboardPage() {
                 <h2 className="font-serif text-2xl font-bold text-midnight mb-1">Screening Intelligence</h2>
                 <p className="text-slate text-sm font-medium">Neural Biomarker Analysis Report</p>
               </div>
-              <div className="px-4 py-2 rounded-full bg-slate/5 border border-slate/10 flex items-center gap-3">
-                <span className="w-2 h-2 rounded-full bg-medical-teal animate-pulse"></span>
-                <span className="text-[10px] font-bold text-midnight uppercase tracking-widest leading-none">Intelligence Engine V2</span>
-              </div>
+
             </div>
 
             <div className="flex items-end gap-16">
@@ -142,7 +139,7 @@ export default function DashboardPage() {
 
           <div className="space-y-3 flex-1">
             {[
-              { label: "Smart Glove", status: "Active", icon: "vibration" },
+              { label: "Tremor Band", status: "Active", icon: "watch" },
               { label: "Voice Probe", status: "Ready", icon: "mic" },
               { label: "Handwriting Tablet", status: "Active", icon: "draw" },
               { label: "Gait Sensor", status: "Offline", icon: "directions_walk" },
@@ -196,9 +193,7 @@ export default function DashboardPage() {
               <h3 className="text-xs font-bold uppercase tracking-[0.25em] text-slate mb-1">Contribution Analysis</h3>
               <p className="text-[10px] text-midnight font-bold uppercase tracking-widest opacity-60">Biomarker Weighting Matrix</p>
             </div>
-            <div className="px-3 py-1 rounded-lg bg-slate/5 border border-slate/10">
-              <span className="text-[9px] font-bold text-slate uppercase tracking-widest">Weights: Q2-Fixed</span>
-            </div>
+
           </div>
 
           <div className="flex-1 space-y-10">
@@ -246,7 +241,7 @@ export default function DashboardPage() {
                 <div className="w-8 h-8 rounded-lg bg-medical-teal/20 flex items-center justify-center">
                   <span className="material-symbols-outlined text-medical-teal text-lg">auto_awesome</span>
                 </div>
-                <h3 className="font-serif text-2xl font-bold tracking-tight">AI Screening Insights & Physician Notes</h3>
+                <h3 className="font-serif text-2xl font-bold tracking-tight">AI Screening Insights / Physician Notes</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

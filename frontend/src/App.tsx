@@ -81,7 +81,11 @@ function App() {
             </div>
             <div>
               <h1 className="font-serif text-xl font-bold tracking-tight leading-none group-hover:text-medical-teal transition-colors">NeuroSense</h1>
-              <p className="text-[10px] uppercase tracking-[0.25em] text-slate/50 font-bold mt-1">Screening Platform</p>
+              <div className="text-[10px] uppercase tracking-[0.25em] text-slate/50 font-bold mt-2 space-y-1">
+                 <p>Screening</p>
+                 <p>Platform</p>
+                 <p className="text-medical-teal/60">For Parkinsons</p>
+              </div>
             </div>
           </div>
 
@@ -105,13 +109,7 @@ function App() {
 
         <div className="mt-auto p-8 border-t border-white/5">
 
-          <div className="flex items-center justify-between p-3 rounded-xl bg-midnight/50 border border-white/5">
-            <div className="flex items-center gap-2">
-               <div className="w-2 h-2 rounded-full bg-medical-teal animate-pulse"></div>
-               <span className="text-[10px] font-bold uppercase tracking-widest text-slate/60">Engine Active</span>
-            </div>
-            <span className="text-[10px] font-mono text-medical-teal/80">v2.4.0</span>
-          </div>
+
         </div>
       </aside>
 
@@ -125,13 +123,7 @@ function App() {
            </div>
            
            <div className="flex items-center gap-8">
-              <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-white border border-slate/10 shadow-sm">
-                 <div className="relative">
-                    <div className="w-2 h-2 rounded-full bg-medical-teal"></div>
-                    <div className="absolute inset-0 w-2 h-2 rounded-full bg-medical-teal animate-ping opacity-40"></div>
-                 </div>
-                 <span className="text-[11px] font-bold text-midnight tracking-widest uppercase">Live Intelligence</span>
-              </div>
+
               
               <div className="flex items-center gap-2 border-l border-slate/10 pl-8">
                  {page === 'patients' && (
