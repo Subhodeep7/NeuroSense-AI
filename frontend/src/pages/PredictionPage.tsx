@@ -25,6 +25,7 @@ function PredictionPage() {
 
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
 
   useEffect(() => { loadPatients(); }, []);
   
@@ -337,83 +338,195 @@ function PredictionPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-16">
             {[
-              { key: "voiceConfidence", label: "Vocal Dysarthria", icon: "mic" },
-              { key: "handwritingConfidence", label: "Handwriting", icon: "draw" },
-              { key: "tremorConfidence", label: "Resting Tremor", icon: "vibration" },
-              { key: "visualConfidence", label: "Gait & Posture", icon: "directions_walk" },
-              { key: "reactionTimeMs", label: "Reaction Time", icon: "timer" },
-            ].map(({ key, label, icon }) => {
+              { key: "voiceConfidence",       label: "Vocal Dysarthria", icon: "mic",             accent: "#8B5CF6", accentName: "Violet"  },
+              { key: "handwritingConfidence", label: "Handwriting",      icon: "draw",            accent: "#6366F1", accentName: "Indigo"  },
+              { key: "tremorConfidence",      label: "Resting Tremor",   icon: "vibration",       accent: "#06B6D4", accentName: "Cyan"    },
+              { key: "visualConfidence",      label: "Gait & Posture",   icon: "directions_walk", accent: "#10B981", accentName: "Emerald" },
+              { key: "reactionTimeMs",        label: "Reaction Time",    icon: "timer",           accent: "#F59E0B", accentName: "Amber"   },
+            ].map(({ key, label, icon, accent }) => {
               let val = result[key];
               if (val == null) return null;
 
               let displayVal = `${Math.round(val * 100)}%`;
-              let subLabel = "Confidence";
-              let riskVal = val;
+              let subLabel   = "Risk Contribution";
+              let riskVal    = val as number;
 
               if (key === "reactionTimeMs") {
                 displayVal = `${val}ms`;
-                subLabel = "Clinical Average";
-                // Risk-based color mapping for reaction time
-                riskVal = val > 400 ? (val - 400) / 200 : 0;
-                riskVal = Math.min(1, Math.max(0, riskVal));
+                subLabel   = "Latency";
+                riskVal    = val > 400 ? Math.min(1, (val - 400) / 200) : 0;
               }
 
-              const colorClass = riskVal >= 0.75 ? "text-medical-red" : riskVal >= 0.5 ? "text-medical-amber" : "text-medical-teal";
-              const bgColorClass = riskVal >= 0.75 ? "bg-medical-red" : riskVal >= 0.5 ? "bg-medical-amber" : "bg-medical-teal";
+              const riskColor = riskVal >= 0.75 ? "#EF4444" : riskVal >= 0.5 ? "#F59E0B" : "#10B981";
+              const riskLabel = riskVal >= 0.75 ? "HIGH"    : riskVal >= 0.5 ? "ELEVATED" : "NORMAL";
+              const isExpanded = expandedCard === key;
+
+              // ── Per-modal biomarker rows ────────────────────────────────────
+              const getBiomarkers = () => {
+                const v = result.visual ?? {};
+                const t = result.tremor  ?? {};
+                const fmt = (n: any, dec = 3) => n != null ? Number(n).toFixed(dec) : "—";
+                const badge = (ok: boolean) => ok
+                  ? <span style={{ color: "#10B981", fontSize: 9, fontWeight: 700 }}>✓ NORMAL</span>
+                  : <span style={{ color: "#EF4444", fontSize: 9, fontWeight: 700 }}>⚠ RISK</span>;
+
+                if (key === "visualConfidence") {
+                  const headNotVisible = v.head_visible === "none" || !v.head_visible;
+                  return [
+                    { label: "Arm Swing Asymmetry",   value: fmt(v.arm_swing_asymmetry),     ok: (v.arm_swing_asymmetry ?? 0) < 0.25,  badge: true  },
+                    { label: "Step Length Asymmetry",  value: fmt(v.step_asymmetry),           ok: (v.step_asymmetry ?? 0)      < 0.18,  badge: true  },
+                    { label: "Trunk Lateral Sway",     value: fmt(v.trunk_sway, 4),            ok: (v.trunk_sway ?? 0)          < 0.08,  badge: true  },
+                    { label: "Trunk Lean Ratio",       value: fmt(v.trunk_lean_ratio, 3),      ok: (v.trunk_lean_ratio ?? 0)    < 0.18,  badge: true  },
+                    { label: "Stride Rhythm CoV",      value: fmt(v.stride_cov),               ok: (v.stride_cov ?? 0)          < 0.25,  badge: true  },
+                    { label: "Cadence (steps/min)",    value: v.cadence_spm ? `${v.cadence_spm}` : "N/A", ok: !v.cadence_spm || v.cadence_spm >= 88, badge: true },
+                    { label: "Wrist Motion Energy",    value: fmt(v.wrist_motion_energy, 4),  ok: (v.wrist_motion_energy ?? 1) >= 0.12, badge: true  },
+                    // Head Bob: only meaningful when head is in frame
+                    headNotVisible
+                      ? { label: "Head Bob Amplitude", value: "N/A — not in frame", ok: true, badge: false }
+                      : { label: "Head Bob Amplitude", value: fmt(v.head_bob_std, 4), ok: (v.head_bob_std ?? 0) < 0.050, badge: true },
+                    { label: "Head Visibility",        value: v.head_visible ?? "none",        ok: !headNotVisible,             badge: true  },
+                    { label: "Frames Analyzed",        value: `${v.frames_analyzed ?? "—"}`,   ok: true,                        badge: false },
+                    { label: "Markers Flagged",        value: `${v.biomarkers_positive ?? 0} / ${v.biomarkers_total ?? 8}`, ok: (v.biomarkers_positive ?? 0) < 3, badge: true },
+                  ];
+                }
+
+                if (key === "tremorConfidence") return [
+                  { label: "Detected Frequency",   value: t.dominant_freq != null ? `${t.dominant_freq} Hz` : "—",  ok: !t.in_pd_band, badge: true },
+                  { label: "Amplitude (STD)",       value: fmt(t.amplitude, 4),     ok: (t.amplitude ?? 0) < 0.10,   badge: true },
+                  { label: "Axis Asymmetry",        value: fmt(t.amp_asymmetry),    ok: (t.amp_asymmetry ?? 0) < 2.0, badge: true },
+                  { label: "In PD Band (4–6 Hz)",   value: t.in_pd_band ? "YES" : "NO",  ok: !t.in_pd_band, badge: true },
+                  { label: "Classification",        value: t.prediction === 1 ? "Tremor Detected" : "No Tremor", ok: t.prediction !== 1, badge: true },
+                  { label: "Source",                value: t.source ?? "—",          ok: true, badge: false },
+                  ...(t.warning ? [{ label: "Warning", value: t.warning, ok: false, badge: false }] : []),
+                  ...(t.note   ? [{ label: "Note",    value: t.note,    ok: true,  badge: false }] : []),
+                ];
+
+                if (key === "voiceConfidence") return [
+                  { label: "Risk Score",      value: `${Math.round((result.voiceConfidence ?? 0) * 100)}%`,  ok: (result.voiceConfidence ?? 0) < 0.5, badge: true },
+                  { label: "Model",           value: result.voice?.model ?? "Acoustic Biomarker CNN", ok: true, badge: false },
+                  { label: "Interpretation",  value: riskVal >= 0.75 ? "Significant dysarthria markers" : riskVal >= 0.5 ? "Mild vocal deviation" : "Phonation within normal range", ok: riskVal < 0.5, badge: false },
+                ];
+
+                if (key === "handwritingConfidence") return [
+                  { label: "Risk Score",      value: `${Math.round((result.handwritingConfidence ?? 0) * 100)}%`, ok: (result.handwritingConfidence ?? 0) < 0.5, badge: true },
+                  { label: "Model",           value: "EfficientNet-B0 + Biomarkers", ok: true, badge: false },
+                  { label: "Interpretation",  value: riskVal >= 0.75 ? "Micrographia pattern detected" : riskVal >= 0.5 ? "Motor control deviation noted" : "Writing within normal parameters", ok: riskVal < 0.5, badge: false },
+                ];
+
+                if (key === "reactionTimeMs") return [
+                  { label: "Final Latency",   value: `${val} ms`,   ok: val < 400, badge: true },
+                  { label: "Clinical Avg",    value: "200–350 ms",  ok: true, badge: false },
+                  { label: "Risk Threshold",  value: "> 400 ms",    ok: true, badge: false },
+                  { label: "Interpretation",  value: val > 550 ? "Bradyphrenia pattern" : val > 400 ? "Slightly delayed" : "Response within normal range", ok: val <= 400, badge: false },
+                ];
+                return [];
+              };
 
               return (
-                <div key={key} className="p-6 bg-slate/5 rounded-3xl border border-slate/10 transition-all hover:bg-white hover:shadow-xl group flex flex-col h-full">
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="w-10 h-10 rounded-xl bg-white border border-slate/10 flex items-center justify-center text-slate group-hover:bg-midnight group-hover:text-white transition-all">
-                      <span className="material-symbols-outlined text-2xl">{icon}</span>
+                <div
+                  key={key}
+                  className={`relative flex flex-col rounded-3xl border border-slate/10 bg-white shadow-sm transition-all duration-300 overflow-hidden ${
+                    isExpanded ? "shadow-xl ring-2" : "hover:shadow-xl cursor-pointer"
+                  }`}
+                  style={{
+                    borderTopColor: accent,
+                    borderTopWidth: "3px",
+                    ...(isExpanded ? { ringColor: accent } : {}),
+                  }}
+                  onClick={() => setExpandedCard(isExpanded ? null : key)}
+                >
+                  {/* Header: icon + value */}
+                  <div className="px-5 pt-5 pb-3 flex justify-between items-start">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{ background: `${accent}1A` }}
+                    >
+                      <span className="material-symbols-outlined text-xl" style={{ color: accent }}>{icon}</span>
                     </div>
                     <div className="text-right">
-                      <p className={`font-serif font-bold text-2xl ${colorClass}`}>{displayVal}</p>
-                      <p className="text-[9px] text-slate font-bold uppercase tracking-widest">{subLabel}</p>
+                      <p className="font-serif font-bold text-2xl leading-none" style={{ color: riskColor }}>{displayVal}</p>
+                      <p className="text-[9px] font-bold uppercase tracking-widest mt-0.5" style={{ color: riskColor }}>{riskLabel}</p>
                     </div>
                   </div>
 
-                  <p className="text-[10px] text-slate font-bold uppercase tracking-widest mb-4">{label}</p>
+                  {/* Body */}
+                  <div className="px-5 pb-3 flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] text-slate font-bold uppercase tracking-widest">{label}</p>
+                      <span className="material-symbols-outlined text-slate/30 text-sm transition-transform duration-300"
+                        style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                        expand_more
+                      </span>
+                    </div>
 
-                  <div className="flex-1">
-                    {/* Visual Waveform Simulation */}
-                    {(key === "voiceConfidence" || key === "tremorConfidence") && (
-                      <div className="h-12 flex items-center gap-0.5 mt-4 px-2">
-                        {[...Array(15)].map((_, i) => (
-                          <div
-                            key={i}
-                            className={`w-1 rounded-full ${bgColorClass} opacity-30`}
-                            style={{
-                              height: `${Math.random() * (riskVal > 0.5 ? 80 : 40) + 20}%`,
-                              animationDelay: `${i * 0.05}s`
-                            }}
+                    {/* Waveform — voice & tremor (only when collapsed) */}
+                    {!isExpanded && (key === "voiceConfidence" || key === "tremorConfidence") && (
+                      <div className="h-10 flex items-center gap-[2px] px-1">
+                        {[...Array(16)].map((_, i) => (
+                          <div key={i} className="flex-1 rounded-full"
+                            style={{ height: `${Math.abs(Math.sin(i * 1.3)) * (riskVal > 0.5 ? 85 : 45) + 15}%`, background: accent, opacity: 0.35 + i * 0.02 }}
                           />
                         ))}
                       </div>
                     )}
 
-                    {key === "handwritingConfidence" && result.handwriting?.annotated_image && (
-                      <div className="mt-4 rounded-xl overflow-hidden border border-slate/10 bg-white p-2">
-                        <p className="text-[8px] font-bold text-slate uppercase tracking-tighter mb-2">Automated Trace Analysis</p>
-                        <img
-                          src={`http://localhost:8080/uploads/${result.handwriting.annotated_image}`}
-                          alt="Handwriting Trace"
-                          className="w-full h-auto object-contain rounded-lg"
-                        />
+                    {/* Gait sparkline (only when collapsed) */}
+                    {!isExpanded && key === "visualConfidence" && (
+                      <div className="h-10 flex items-end gap-[3px] px-1">
+                        {[...Array(12)].map((_, i) => (
+                          <div key={i} className="flex-1 rounded-sm"
+                            style={{ height: `${25 + Math.abs(Math.sin(i * 0.9 + 0.5)) * 55 * (riskVal > 0.5 ? 1.6 : 0.7) + 8}%`, background: accent, opacity: 0.35 }}
+                          />
+                        ))}
                       </div>
                     )}
 
-                    {key === "reactionTimeMs" && (
-                      <div className="mt-4 space-y-2">
-                         <div className="h-1.5 w-full bg-slate/10 rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full ${bgColorClass} transition-all duration-1000`} 
-                              style={{ width: `${riskVal * 100}%` }}
-                            />
-                         </div>
-                         <p className="text-[8px] text-slate/50 font-bold uppercase tracking-widest text-center">Relative Latency Risk</p>
+                    {/* Handwriting image (only when collapsed) */}
+                    {!isExpanded && key === "handwritingConfidence" && result.handwriting?.annotated_image && (
+                      <div className="rounded-xl overflow-hidden border border-slate/10 p-2">
+                        <img src={`http://localhost:8080/uploads/${result.handwriting.annotated_image}`}
+                          alt="Handwriting Trace" className="w-full h-auto object-contain rounded-lg" />
                       </div>
                     )}
+
+                    {/* Reaction time bar (only when collapsed) */}
+                    {!isExpanded && key === "reactionTimeMs" && (
+                      <div className="space-y-2 mt-2">
+                        <div className="h-1.5 w-full bg-slate/10 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-1000"
+                            style={{ width: `${riskVal * 100}%`, background: riskColor }} />
+                        </div>
+                        <p className="text-[8px] text-slate/50 font-bold uppercase tracking-widest text-center">Relative Latency Risk</p>
+                      </div>
+                    )}
+
+                    {/* ── EXPANDED BIOMARKER PANEL ── */}
+                    {isExpanded && (
+                      <div className="mt-1 space-y-[5px] animate-in fade-in slide-in-from-top-2 duration-200">
+                        {getBiomarkers().map((row, i) => (
+                          <div key={i} className="flex justify-between items-center py-[5px] border-b border-slate/5 last:border-0">
+                            <span className="text-[9px] text-slate/70 font-medium">{row.label}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-bold text-midnight font-mono"
+                                style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {String(row.value)}
+                              </span>
+                              {row.badge && (
+                                row.ok
+                                  ? <span style={{ color: "#10B981", fontSize: 8, fontWeight: 700 }}>✓</span>
+                                  : <span style={{ color: "#EF4444", fontSize: 8, fontWeight: 700 }}>⚠</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom identity-color progress bar */}
+                  <div className="h-[3px] w-full bg-slate/5 mt-auto">
+                    <div className="h-full rounded-r-full transition-all duration-1000"
+                      style={{ width: `${Math.min(100, riskVal * 100)}%`, background: accent }} />
                   </div>
                 </div>
               );

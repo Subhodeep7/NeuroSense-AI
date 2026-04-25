@@ -110,8 +110,11 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     #   25 = left_knee       26 = right_knee
     #   27 = left_ankle      28 = right_ankle
 
-    frame_data = []
-    frame_idx  = 0
+    frame_data  = []
+    frame_idx   = 0
+    best_frame  = None      # captured during main loop — no second pass needed
+    best_lm     = None
+    best_vis    = -1.0      # mean landmark visibility of best frame
 
     options = PoseLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=MODEL_PATH),
@@ -135,7 +138,13 @@ def analyze_with_mediapipe(video_path: str) -> dict:
             frame_idx    += 1
 
             if result.pose_landmarks:
-                lm = result.pose_landmarks[0]   # List[NormalizedLandmark]
+                lm       = result.pose_landmarks[0]
+                mean_vis = sum(l.visibility for l in lm) / len(lm)
+                # Keep the frame with best overall landmark visibility for annotation
+                if mean_vis > best_vis:
+                    best_vis   = mean_vis
+                    best_frame = frame.copy()
+                    best_lm    = lm
                 frame_data.append({
                     'nose_y':       lm[0].y,
                     'nose_x':       lm[0].x,
@@ -157,9 +166,18 @@ def analyze_with_mediapipe(video_path: str) -> dict:
                     'r_ankle_x':    lm[28].x,
                     'l_knee_y':     lm[25].y,
                     'r_knee_y':     lm[26].y,
-                    'visibility':   (lm[11].visibility + lm[12].visibility +
-                                     lm[23].visibility + lm[24].visibility) / 4,
-                    '_landmarks':   lm,   # kept for draw_annotated_frame
+                    'visibility':      (lm[11].visibility + lm[12].visibility +
+                                        lm[23].visibility + lm[24].visibility) / 4,
+                    'nose_visibility': lm[0].visibility,   # separate — head may be cropped
+                    # Spatial gate: nose must sit meaningfully ABOVE the shoulder midpoint.
+                    # MediaPipe extrapolates nose coords even when head is off-frame
+                    # (it can give visibility=0.8 for a nose that is above the video edge).
+                    # In image coords y increases downward, so shoulder_y > nose_y = head visible.
+                    'nose_above_shoulder': (
+                        (lm[11].y + lm[12].y) / 2  # shoulder_mid_y
+                        - lm[0].y                   # nose_y (smaller = higher in image)
+                    ),
+                    '_landmarks':      lm,   # kept for draw_annotated_frame
                 })
     cap.release()
 
@@ -170,114 +188,244 @@ def analyze_with_mediapipe(video_path: str) -> dict:
 
     n = len(good_frames)
 
-    # ── BIOMARKER 1: Arm Swing Asymmetry ───────────────────────────────────
-    # Wrist vertical displacement relative to hip — measures arm pendulum swing
-    l_arm_swings = [abs(f['l_wrist_y'] - f['l_hip_y']) for f in good_frames]
-    r_arm_swings = [abs(f['r_wrist_y'] - f['r_hip_y']) for f in good_frames]
-    avg_l_swing  = float(np.mean(l_arm_swings))
-    avg_r_swing  = float(np.mean(r_arm_swings))
-    arm_asym     = abs(avg_l_swing - avg_r_swing) / (avg_l_swing + avg_r_swing + 1e-6)
-    # PD hallmark: one arm swings much less. Clinical threshold ≈ 0.25
-    # PD hallmark: one arm swings much less. Clinical threshold ≈ 0.18 (adjusted for early detection)
-    arm_asym_pd  = arm_asym > 0.18
+    # ── Camera-distance normalization reference ─────────────────────────────────
+    # Shoulder width is the only anatomically stable scale-invariant reference.
+    # All positional/displacement metrics are divided by it so the model produces
+    # the same output regardless of camera distance or zoom level.
+    shoulder_widths = [abs(f['r_shoulder_x'] - f['l_shoulder_x']) for f in good_frames]
+    ref_width       = float(np.median(shoulder_widths)) + 1e-6   # median guards outliers
 
-    # ── BIOMARKER 2: Step Length Asymmetry ─────────────────────────────────
-    # Horizontal distance of each ankle from the hip midpoint
-    l_step_lens = [abs(f['l_ankle_x'] - (f['l_hip_x'] + f['r_hip_x']) / 2) for f in good_frames]
-    r_step_lens = [abs(f['r_ankle_x'] - (f['l_hip_x'] + f['r_hip_x']) / 2) for f in good_frames]
+    # ── BIOMARKER 1: Arm Swing Asymmetry ───────────────────────────────────────
+    # FIX M2: use STD of wrist-to-hip distance (swing variation = actual amplitude)
+    # NOT mean (which measures average wrist position, not swing motion).
+    # FIX C2: normalize by shoulder width → camera-distance independent.
+    l_wrist_hip = [abs(f['l_wrist_y'] - f['l_hip_y']) / ref_width for f in good_frames]
+    r_wrist_hip = [abs(f['r_wrist_y'] - f['r_hip_y']) / ref_width for f in good_frames]
+    l_arm_swing_amp = float(np.std(l_wrist_hip))   # variation in distance = swing amplitude
+    r_arm_swing_amp = float(np.std(r_wrist_hip))
+    arm_asym        = abs(l_arm_swing_amp - r_arm_swing_amp) / (l_arm_swing_amp + r_arm_swing_amp + 1e-6)
+    # PD hallmark: one arm freezes → asymmetry > 0.25 (normalised swing amplitude ratio)
+    arm_asym_pd     = arm_asym > 0.25
+    # Keep avg values for JSON output
+    avg_l_swing = float(np.mean(l_wrist_hip))
+    avg_r_swing = float(np.mean(r_wrist_hip))
+
+    # ── BIOMARKER 2: Step Length Asymmetry ─────────────────────────────────────
+    # FIX C2: normalize ankle-to-hip-midpoint distance by shoulder width.
+    hip_mid_x   = [(f['l_hip_x'] + f['r_hip_x']) / 2 for f in good_frames]
+    l_step_lens = [abs(f['l_ankle_x'] - hx) / ref_width for f, hx in zip(good_frames, hip_mid_x)]
+    r_step_lens = [abs(f['r_ankle_x'] - hx) / ref_width for f, hx in zip(good_frames, hip_mid_x)]
     avg_l_step  = float(np.mean(l_step_lens))
     avg_r_step  = float(np.mean(r_step_lens))
     step_asym   = abs(avg_l_step - avg_r_step) / (avg_l_step + avg_r_step + 1e-6)
     step_asym_pd = step_asym > 0.18
 
-    # ── BIOMARKER 3: Trunk Lateral Sway ────────────────────────────────────
-    # Midpoint of shoulders x-coordinate variance → postural instability
+    # ── BIOMARKER 3: Trunk Lateral Sway ────────────────────────────────────────
+    # FIX C2: normalize shoulder midpoint x-variance by shoulder width.
     shoulder_mid_x = [(f['l_shoulder_x'] + f['r_shoulder_x']) / 2 for f in good_frames]
-    trunk_sway     = float(np.std(shoulder_mid_x))
-    trunk_sway_pd  = trunk_sway > 0.040  # more sensitive threshold
+    trunk_sway     = float(np.std(shoulder_mid_x)) / ref_width
+    # >8% of shoulder width = pathological lateral sway
+    trunk_sway_pd  = trunk_sway > 0.08
 
-    # ── BIOMARKER 4: Forward Trunk Lean (Camptocormia) ─────────────────────
-    # Difference between shoulder midpoint y and hip midpoint y
-    # Normally near-equal; forward lean = shoulders ABOVE hips (lower y val in image)
-    shoulder_hip_diffs = [(f['l_hip_y'] + f['r_hip_y']) / 2 -
-                          (f['l_shoulder_y'] + f['r_shoulder_y']) / 2
-                          for f in good_frames]
-    avg_lean     = float(np.mean(shoulder_hip_diffs))
-    # Healthy upright: diff ~0.25–0.35 (hips well below shoulders in image coords)
-    # Forward lean: diff < 0.22 (stooped)
-    trunk_lean_pd = avg_lean < 0.22
+    # ── BIOMARKER 4: Forward Trunk Lean (Camptocormia) ─────────────────────────
+    # FIX C1: use HORIZONTAL (x-axis) shoulder displacement relative to hip,
+    # normalized by torso vertical length. This is camera-angle independent —
+    # a stooped person's shoulders are forward of their hips regardless of whether
+    # filmed portrait (old y-diff was resolution-dependent) or landscape.
+    torso_lens     = [(f['l_hip_y'] + f['r_hip_y']) / 2 - (f['l_shoulder_y'] + f['r_shoulder_y']) / 2
+                      for f in good_frames]
+    torso_len_ref  = float(np.median([abs(t) for t in torso_lens])) + 1e-6
+    shoulder_fwd_x = [(f['l_shoulder_x'] + f['r_shoulder_x']) / 2 -
+                      (f['l_hip_x']      + f['r_hip_x'])      / 2
+                      for f in good_frames]
+    norm_lean      = [abs(sx) / torso_len_ref for sx in shoulder_fwd_x]
+    avg_lean_ratio = float(np.mean(norm_lean))
+    avg_lean       = float(np.mean(torso_lens))   # kept for JSON output
+    # Shoulders >18% of torso length forward of hips = stooped posture
+    trunk_lean_pd  = avg_lean_ratio > 0.18
 
-    # ── BIOMARKER 5: Stride Rhythm Irregularity (Festination) ──────────────
-    # Detect ankle y-coordinate zero-crossings (step events) → compute cadence CoV
-    # Use left ankle vertical motion as step signal
-    l_ankle_y = np.array([f['l_ankle_y'] for f in good_frames])
+    # ── BIOMARKER 5: Stride Rhythm Irregularity (Festination) ──────────────────
+    # FIX H1: gate to ≥6 detected peaks (3 full stride cycles) before computing CoV.
+    # With only 2–3 peaks the CoV is statistically meaningless and fires false positives.
+    # Also: only flag low_cadence when enough steps are detected to measure pace.
+    l_ankle_y         = np.array([f['l_ankle_y'] for f in good_frames])
     l_ankle_detrended = l_ankle_y - np.mean(l_ankle_y)
-    # Find step events as local minima (foot at lowest point = foot strike)
-    peaks, _ = find_peaks(-l_ankle_detrended, distance=max(3, int(fps * 0.25)))
-    if len(peaks) > 2:
-        intervals     = np.diff(peaks)
-        stride_cov    = float(np.std(intervals) / (np.mean(intervals) + 1e-6))
-        stride_rhythm_pd = stride_cov > 0.22  # increased sensitivity
-        cadence_spm   = (len(peaks) / (n / fps)) * 60 if fps > 0 else 0
-        low_cadence_pd = cadence_spm > 0 and cadence_spm < 95  # increased sensitivity
+    peaks, _          = find_peaks(-l_ankle_detrended, distance=max(3, int(fps * 0.25)))
+
+    if len(peaks) >= 6:   # need ≥3 complete stride cycles for reliable statistics
+        intervals        = np.diff(peaks)
+        stride_cov       = float(np.std(intervals) / (np.mean(intervals) + 1e-6))
+        stride_rhythm_pd = stride_cov > 0.25   # raised from 0.22 (less false positives)
+        cadence_spm      = (len(peaks) / (n / fps)) * 60 if fps > 0 else 0
+        low_cadence_pd   = 0 < cadence_spm < 88   # only flag if clearly walking
     else:
-        stride_cov     = 0.0
+        stride_cov       = 0.0
         stride_rhythm_pd = False
-        cadence_spm    = 0.0
-        low_cadence_pd = False
+        cadence_spm      = 0.0
+        low_cadence_pd   = False   # cannot determine cadence from <6 steps
 
-    # ── BIOMARKER 6: Head Bob Amplitude ────────────────────────────────────
-    # Excessive head movement compensates for reduced arm/trunk swing
-    nose_y     = np.array([f['nose_y'] for f in good_frames])
-    head_bob   = float(np.std(nose_y))
-    head_bob_pd = head_bob > 0.022  # normalized; healthy < 0.015
+    # ── BIOMARKER 6: Head Bob Amplitude ────────────────────────────────────────
+    # MediaPipe extrapolates nose position even when the head is OFF-FRAME.
+    # Its 'visibility' score can be 0.80+ for a nose above the video edge.
+    #
+    # THREE-GATE filter — ALL must pass:
+    #   Gate A: nose_visibility > threshold       (model confidence)
+    #   Gate B: nose physically above shoulders   (nose_above_shoulder > 0)
+    #   Gate C: ANATOMICAL SCALE — nose must be above shoulders by at least
+    #           25% of the torso length (shoulder→hip).
+    #
+    # Why Gate C fixes waist-down filming:
+    #   When camera shows waist-down: shoulders are near y≈0.15 (top edge),
+    #   nose is extrapolated to y≈0.02 → gap = 0.13. Gate B (>0.06) passes!
+    #   But torso_len = hip_y - shoulder_y ≈ 0.10 (hips + legs fill frame).
+    #   Gate C: min_gap = 0.25 * torso_len ≈ 0.025 — hmm, still passes.
+    #
+    #   Better Gate C: shoulder must NOT be near the very top of the frame.
+    #   If shoulder_mid_y < 0.20 (shoulders in top 20% of frame), the camera
+    #   is aimed at the lower body → head is definitely not visible.
+    #   Typical shoulder position when head visible: shoulder_mid_y 0.22–0.40.
 
-    # ── BIOMARKER 7: Upper Body Motion Energy (Bradykinesia) ───────────────
-    # Overall wrist motion energy — reduced in bradykinesia
-    l_wrist_motion = float(np.std([f['l_wrist_y'] for f in good_frames]) +
-                           np.std([f['l_wrist_x'] for f in good_frames]))
-    r_wrist_motion = float(np.std([f['r_wrist_y'] for f in good_frames]) +
-                           np.std([f['r_wrist_x'] for f in good_frames]))
+    def _head_frame_ok(f: dict, vis_thresh: float) -> bool:
+        nose_vis        = f.get('nose_visibility', 0)
+        gap             = f.get('nose_above_shoulder', 0)  # shoulder_mid_y - nose_y
+
+        shoulder_mid_y  = (f.get('l_shoulder_y', 0.5) + f.get('r_shoulder_y', 0.5)) / 2
+        hip_mid_y       = (f.get('l_hip_y', 0.8)      + f.get('r_hip_y', 0.8))      / 2
+        torso_len       = max(0.05, hip_mid_y - shoulder_mid_y)  # always positive (hips below shoulders)
+
+        # Anatomical scale: nose must clear shoulders by ≥30% of torso length
+        min_gap_anat    = torso_len * 0.30   # for full body: 0.35*0.30=0.105; waist-down: 0.10*0.30=0.030
+
+        # Additional guard: if shoulders are in the top 18% of frame, camera is aimed low
+        shoulder_too_high = shoulder_mid_y < 0.18
+
+        return (
+            nose_vis > vis_thresh           # Gate A: model confidence
+            and gap > 0.05                  # Gate B: basic spatial check
+            and gap > min_gap_anat          # Gate C: anatomically-scaled gap
+            and not shoulder_too_high       # Gate D: shoulder position sanity
+        )
+
+    nose_frames_full = [f for f in good_frames if _head_frame_ok(f, 0.70)]
+    nose_frames_semi = [f for f in good_frames if _head_frame_ok(f, 0.40)]
+
+    # Compute debug stats
+    median_gap          = float(np.median([f.get('nose_above_shoulder', 0) for f in good_frames]))
+    median_shoulder_y   = float(np.median([(f.get('l_shoulder_y',0)+f.get('r_shoulder_y',0))/2 for f in good_frames]))
+    median_hip_y        = float(np.median([(f.get('l_hip_y',0.8)+f.get('r_hip_y',0.8))/2 for f in good_frames]))
+    median_torso_len    = max(0.05, median_hip_y - median_shoulder_y)
+    median_nose_vis     = float(np.median([f.get('nose_visibility', 0) for f in good_frames]))
+
+    print(f"[HeadGate] median nose_vis={median_nose_vis:.3f}  gap={median_gap:.3f}  "
+          f"shoulder_y={median_shoulder_y:.3f}  hip_y={median_hip_y:.3f}  torso_len={median_torso_len:.3f}  "
+          f"min_gap_needed={median_torso_len*0.30:.3f}  "
+          f"full_ok_frames={len(nose_frames_full)}  semi_ok_frames={len(nose_frames_semi)}",
+          file=sys.stderr, flush=True)
+
+    if len(nose_frames_full) >= 10:
+        nose_y          = np.array([f['nose_y'] for f in nose_frames_full])
+        head_bob        = float(np.std(nose_y))
+        head_bob_pd     = head_bob > 0.050
+        head_bob_weight = 0.01
+        head_visible    = "full"
+    elif len(nose_frames_semi) >= 10:
+        nose_y          = np.array([f['nose_y'] for f in nose_frames_semi])
+        head_bob        = float(np.std(nose_y))
+        head_bob_pd     = head_bob > 0.065
+        head_bob_weight = 0.005
+        head_visible    = "partial"
+    else:
+        head_bob        = 0.0
+        head_bob_pd     = False
+        head_bob_weight = 0.0
+        head_visible    = "none"
+
+    print(f"[HeadGate] → head_visible={head_visible!r}  head_bob={head_bob:.4f}  "
+          f"head_bob_pd={head_bob_pd}", file=sys.stderr, flush=True)
+
+    # ── BIOMARKER 7: Upper Body Motion Energy (Bradykinesia) ───────────────────
+    # FIX C3: normalize by shoulder width → camera-distance independent.
+    # Old absolute threshold 0.038 caused false positives when subject far from camera.
+    # New threshold 0.12 = <12% of shoulder width per axis = significantly reduced motion.
+    l_wrist_motion = (float(np.std([f['l_wrist_y'] for f in good_frames])) +
+                      float(np.std([f['l_wrist_x'] for f in good_frames]))) / ref_width
+    r_wrist_motion = (float(np.std([f['r_wrist_y'] for f in good_frames])) +
+                      float(np.std([f['r_wrist_x'] for f in good_frames]))) / ref_width
     avg_wrist_motion = (l_wrist_motion + r_wrist_motion) / 2
-    bradykinesia_pd  = avg_wrist_motion < 0.038  # increased sensitivity
+    bradykinesia_pd  = avg_wrist_motion < 0.12
 
-    # ── WEIGHTED FUSION of 7 Biomarkers ────────────────────────────────────
-    # Weights optimized for clinical specificty:
-    #   Arm swing asymmetry    — boosted to 0.30 as primary unilateral marker
-    #   Stride rhythm (CoV)   — 0.22
-    #   Low cadence           — 0.18
-    #   Bradykinesia          — 0.18
+    # ── WEIGHTED FUSION of 7 Biomarkers ────────────────────────────────────────
+    # Weights rebalanced after normalization fixes:
+    #   arm_asymmetry  — primary PD marker, kept highest
+    #   bradykinesia   — raised (now normalised = more reliable)
+    #   stride_rhythm  — unchanged, now gated to ≥6 steps
+    #   low_cadence    — lowered (fewer false fires with ≥6-step gate)
+    #   step_asymmetry — raised slightly (now normalised geometry)
+    #   trunk_sway     — raised (now normalised)
     votes = {
-        'arm_asymmetry':  (arm_asym_pd,     0.30),
+        'arm_asymmetry':  (arm_asym_pd,      0.28),
+        'bradykinesia':   (bradykinesia_pd,  0.20),
         'stride_rhythm':  (stride_rhythm_pd, 0.22),
-        'low_cadence':    (low_cadence_pd,   0.18),
-        'bradykinesia':   (bradykinesia_pd,  0.18),
-        'step_asymmetry': (step_asym_pd,     0.06),
-        'trunk_sway':     (trunk_sway_pd,    0.04),
+        'low_cadence':    (low_cadence_pd,   0.16),
+        'step_asymmetry': (step_asym_pd,     0.07),
+        'trunk_sway':     (trunk_sway_pd,    0.05),
         'trunk_lean':     (trunk_lean_pd,    0.01),
-        'head_bob':       (head_bob_pd,      0.01),
+        'head_bob':       (head_bob_pd,      head_bob_weight),
     }
 
-    weighted_risk  = sum(w for (flag, w) in votes.values() if flag)
-    total_weight   = sum(w for (_, w) in votes.values())
-    raw_risk       = weighted_risk / total_weight  # normalize to [0,1]
+    weighted_risk   = sum(w for (flag, w) in votes.values() if flag)
+    total_weight    = sum(w for (_, w) in votes.values())
+    raw_risk        = weighted_risk / total_weight   # ∈ [0, 1]
 
-    # Flags triggered count (for logging)
     flags_triggered = sum(1 for (flag, _) in votes.values() if flag)
     total_flags     = len(votes)
 
-    # ── Final prediction ────────────────────────────────────────────────────
-    # Calibration: ≥3 biomarkers positive → Parkinson's
-    # Raw risk ≥ 0.40 → Parkinson's (conservative threshold to minimize false positives)
-    is_parkinsons = 1 if (flags_triggered >= 3 or raw_risk >= 0.40) else 0
+    # ── Final prediction ────────────────────────────────────────────────────────
+    # Two-tier decision:
+    # Tier 1 — weighted risk >= 0.40 → PD (general case)
+    # Tier 2 — CLINICAL GATE: arm_asym > 0.30 (30%) is 85% sensitive for early PD.
+    #           If this fires AND any 2nd marker confirms → PD even if raw_risk < 0.40.
+    #           Prevents healthy-marker dilution from swamping a strong arm-asymmetry signal.
+    high_arm_asym = arm_asym > 0.30
+    clinical_gate = high_arm_asym and flags_triggered >= 2
+    is_parkinsons = 1 if (raw_risk >= 0.40 or clinical_gate) else 0
 
-    # Confidence calibration using Platt scaling approximation
-    # Healthy: confidence = 1 - raw_risk (how sure we are it's healthy)
-    # PD:      confidence = raw_risk (how sure we are it's PD)
+    # Confidence calibration
     if is_parkinsons == 1:
-        confidence = round(min(0.97, max(0.55, raw_risk + 0.10)), 4)
+        if raw_risk >= 0.40:
+            confidence = round(min(0.97, max(0.60, raw_risk + 0.12)), 4)
+        else:
+            arm_severity = min(0.18, (arm_asym - 0.30) * 1.5)
+            confidence   = round(min(0.82, max(0.62, raw_risk + arm_severity + 0.26)), 4)
     else:
-        confidence = round(min(0.90, max(0.10, 1.0 - raw_risk - 0.05)), 4)
+        confidence = round(min(0.92, max(0.10, 1.0 - raw_risk - 0.05)), 4)
+
+    # ── Full diagnostic log ─────────────────────────────────────────────────────
+    print("=" * 68, file=sys.stderr, flush=True)
+    print(f"[NeuroSense] GAIT ANALYSIS — {n} frames @ {fps:.1f} fps", file=sys.stderr, flush=True)
+    print(f"  shoulder_width (ref): {ref_width:.4f}", file=sys.stderr, flush=True)
+    print(f"  head_visible:         {head_visible!r}  (gap={median_gap:.3f}  shoulder_y={median_shoulder_y:.3f})", file=sys.stderr, flush=True)
+    print("-" * 68, file=sys.stderr, flush=True)
+    print(f"  {'Biomarker':<22} {'Value':>8}  {'Flagged':>7}  {'Weight':>6}", file=sys.stderr, flush=True)
+    print(f"  {'─'*22} {'─'*8}  {'─'*7}  {'─'*6}", file=sys.stderr, flush=True)
+    bm_rows = [
+        ("arm_asymmetry",  f"{arm_asym:.4f}",        arm_asym_pd,      0.28),
+        ("bradykinesia",   f"{avg_wrist_motion:.4f}", bradykinesia_pd,  0.20),
+        ("stride_rhythm",  f"{stride_cov:.4f}",       stride_rhythm_pd, 0.22),
+        ("low_cadence",    f"{cadence_spm:.1f} spm",  low_cadence_pd,   0.16),
+        ("step_asymmetry", f"{step_asym:.4f}",        step_asym_pd,     0.07),
+        ("trunk_sway",     f"{trunk_sway:.4f}",       trunk_sway_pd,    0.05),
+        ("trunk_lean",     f"{avg_lean_ratio:.4f}",   trunk_lean_pd,    0.01),
+        ("head_bob",       f"{head_bob:.4f}",          head_bob_pd,      head_bob_weight),
+    ]
+    for name, val, flagged, wt in bm_rows:
+        flag_str = "⚠ RISK" if flagged else "✓ ok  "
+        print(f"  {name:<22} {val:>8}  {flag_str}  {wt:.2f}", file=sys.stderr, flush=True)
+    print("-" * 68, file=sys.stderr, flush=True)
+    print(f"  raw_risk={raw_risk:.4f}  flags={flags_triggered}/{total_flags}  "
+          f"clinical_gate={clinical_gate}  is_parkinsons={is_parkinsons}  "
+          f"confidence={confidence}", file=sys.stderr, flush=True)
+    print("=" * 68, file=sys.stderr, flush=True)
 
     return {
         "model":             "visual",
@@ -285,15 +433,19 @@ def analyze_with_mediapipe(video_path: str) -> dict:
         "frames_analyzed":   n,
         "fps":               round(fps, 1),
 
-        # Biomarker values
+        # Biomarker values (all normalised by shoulder width where applicable)
         "arm_swing_asymmetry":  round(arm_asym, 4),
         "step_asymmetry":       round(step_asym, 4),
-        "trunk_sway":           round(trunk_sway, 4),
-        "trunk_lean_avg":       round(avg_lean, 4),
+        "trunk_sway":           round(trunk_sway, 4),        # normalised
+        "trunk_lean_avg":       round(avg_lean, 4),          # raw torso y-diff for reference
+        "trunk_lean_ratio":     round(avg_lean_ratio, 4),    # normalised (used for decision)
         "stride_cov":           round(stride_cov, 4),
         "cadence_spm":          round(cadence_spm, 1),
         "head_bob_std":         round(head_bob, 4),
-        "wrist_motion_energy":  round(avg_wrist_motion, 4),
+        "wrist_motion_energy":  round(avg_wrist_motion, 4),  # normalised
+        "ref_shoulder_width":   round(ref_width, 4),         # for debugging
+        "head_visible":          head_visible,                # "full" | "partial" | "none"
+        "nose_shoulder_gap":     round(median_gap, 4),        # debug: spatial head-detection gap
 
         # Vote summary
         "biomarkers_positive":  flags_triggered,
@@ -304,8 +456,10 @@ def analyze_with_mediapipe(video_path: str) -> dict:
         "prediction":           is_parkinsons,
         "confidence":           confidence,
 
-        # Internal: used by draw_annotated_frame, stripped before JSON output
-        "_biomarker_votes":     votes,
+        # Internal keys — used by draw_annotated_frame, stripped before JSON output
+        "_biomarker_votes": votes,
+        "_best_frame":      best_frame,   # pre-captured — avoids second video pass
+        "_best_lm":         best_lm,
     }
 
 
@@ -447,123 +601,88 @@ def analyze_with_opencv(video_path: str) -> dict:
 #  ANNOTATED FRAME GENERATOR
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def draw_annotated_frame(video_path: str, biomarker_flags: dict, uploads_dir: str) -> str:
+def draw_annotated_frame(frame, lm, biomarker_flags: dict, uploads_dir: str):
     """
-    Picks the best-quality frame from the video, draws the MediaPipe skeleton,
-    highlights flagged biomarker joints in RED and healthy ones in GREEN,
-    adds a legend panel, and saves to uploads_dir.
-    Returns the saved filename (not full path).
+    Draw MediaPipe skeleton on a pre-captured frame (already grabbed during analysis —
+    no second video pass, no second PoseLandmarker, no GPU delegate issue).
+    Highlights flagged biomarker joints RED, healthy joints GREEN.
+    Adds header + legend panel. Saves to uploads_dir. Returns filename.
     """
-    import os, uuid, mediapipe as mp
+    import uuid
 
-    cap       = cv2.VideoCapture(video_path)
-    fps_cap   = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    best_frame = None
-    best_score = -1.0
-    best_lm    = None
-    frame_idx  = 0
-
-    # Detect delegate (GPU if available)
-    delegate = mp_python.BaseOptions.Delegate.GPU if MEDIAPIPE_AVAILABLE else mp_python.BaseOptions.Delegate.CPU
-
-    opts = PoseLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=MODEL_PATH, delegate=delegate),
-        running_mode=VisionRunningMode.VIDEO,
-        num_poses=1,
-        min_pose_detection_confidence=0.5,
-        min_pose_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
-    )
-
-    with PoseLandmarker.create_from_options(opts) as landmarker:
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image  = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            ts_ms     = int(frame_idx * (1000.0 / fps_cap))
-            res       = landmarker.detect_for_video(mp_image, ts_ms)
-            frame_idx += 1
-            if res.pose_landmarks:
-                lm    = res.pose_landmarks[0]
-                score = sum(l.visibility for l in lm) / len(lm)
-                if score > best_score:
-                    best_score = score
-                    best_frame = frame.copy()
-                    best_lm    = lm
-    cap.release()
-
-    if best_frame is None or best_lm is None:
+    if frame is None or lm is None:
         return None
 
-    frame = best_frame
-    lm    = best_lm
-    H, W  = frame.shape[:2]
+    H, W = frame.shape[:2]
 
-    # ── Dark background overlay for professionalism ────────────────────────
+    # ── Dark background overlay ────────────────────────────────────────────
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (W, H), (8, 12, 22), -1)
-    frame = cv2.addWeighted(overlay, 0.55, frame, 0.45, 0)
+    frame = cv2.addWeighted(overlay, 0.45, frame, 0.55, 0)
 
-    # ── Draw base skeleton (white connections via manual OpenCV) ───────────
-    def px(lmk): return (int(lmk.x * W), int(lmk.y * H))
+    def px(lmk):
+        return (int(lmk.x * W), int(lmk.y * H))
 
+    # ── Skeleton connections (white lines) ────────────────────────────────
     for (i, j) in _POSE_CONNECTIONS:
         if i < len(lm) and j < len(lm):
-            pt1 = px(lm[i]); pt2 = px(lm[j])
-            cv2.line(frame, pt1, pt2, (80, 80, 100), 2)
+            cv2.line(frame, px(lm[i]), px(lm[j]), (70, 70, 95), 2)
 
-    # Landmark groups mapped to biomarkers
+    # ── Map biomarkers → affected landmark indices ─────────────────────────
     joint_flags = {
-        # arm asymmetry → highlight shoulders + wrists
-        'arm_asymmetry': [11, 12, 15, 16],
-        # step/stride → ankles + knees
-        'stride_rhythm': [25, 26, 27, 28],
-        'low_cadence':   [25, 26, 27, 28],
-        'step_asymmetry':[27, 28],
-        # trunk → hips + shoulders mid
-        'trunk_sway':    [11, 12, 23, 24],
-        'trunk_lean':    [11, 12, 23, 24],
-        # bradykinesia → wrists
-        'bradykinesia':  [15, 16],
-        # head
-        'head_bob':      [0],
+        'arm_asymmetry':  [11, 12, 13, 14, 15, 16],
+        'stride_rhythm':  [25, 26, 27, 28],
+        'low_cadence':    [25, 26, 27, 28],
+        'step_asymmetry': [27, 28],
+        'trunk_sway':     [11, 12, 23, 24],
+        'trunk_lean':     [11, 12, 23, 24],
+        'bradykinesia':   [15, 16],
+        'head_bob':       [0, 1, 2, 3, 4, 5, 6, 7, 8],
     }
 
-    flagged_joints = set()
-    healthy_joints = set(range(33))
+    BIOMARKER_COLORS = {
+        'arm_asymmetry':  (246,  92, 139),   # violet (BGR)
+        'bradykinesia':   ( 94,  63, 244),   # rose
+        'stride_rhythm':  ( 22, 115, 249),   # orange
+        'low_cadence':    ( 11, 158, 245),   # amber
+        'step_asymmetry': (241, 102,  99),   # indigo
+        'trunk_sway':     (212, 182,   6),   # cyan
+        'trunk_lean':     (129, 185,  16),   # emerald
+        'head_bob':       (233, 165,  14),   # sky
+    }
+
+    flagged_joints   = {}  # joint_idx → color
+    all_joints       = set(range(33))
 
     for biomarker, (is_flagged, _) in biomarker_flags.items():
-        joints = joint_flags.get(biomarker, [])
         if is_flagged:
-            flagged_joints.update(joints)
+            color = BIOMARKER_COLORS.get(biomarker, (60, 80, 220))
+            for idx in joint_flags.get(biomarker, []):
+                flagged_joints[idx] = color   # last writer wins if joint shared
 
-    healthy_joints -= flagged_joints
+    healthy_joints = all_joints - set(flagged_joints.keys())
 
-    # Draw flagged joints RED
-    for idx in flagged_joints:
-        pt = px(lm[idx])
-        cv2.circle(frame, pt, 10, (0, 60, 220), -1)
-        cv2.circle(frame, pt, 10, (0, 100, 255), 2)
-
-    # Draw healthy joints GREEN
+    # Draw healthy joints (green, small)
     for idx in healthy_joints:
-        pt = px(lm[idx])
-        cv2.circle(frame, pt, 6, (20, 180, 80), -1)
+        if idx < len(lm):
+            cv2.circle(frame, px(lm[idx]), 5, (20, 180, 80), -1)
+            cv2.circle(frame, px(lm[idx]), 5, (40, 220, 100), 1)
+
+    # Draw flagged joints (identity color, large + ring)
+    for idx, color in flagged_joints.items():
+        if idx < len(lm):
+            cv2.circle(frame, px(lm[idx]), 11, color, -1)
+            cv2.circle(frame, px(lm[idx]), 13, (255, 255, 255), 1)
 
     # ── Header bar ────────────────────────────────────────────────────────
-    cv2.rectangle(frame, (0, 0), (W, 40), (15, 20, 35), -1)
-    cv2.putText(frame, 'NeuroSense-AI  |  Gait Analysis Frame',
-                (12, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (175, 198, 255), 2)
+    cv2.rectangle(frame, (0, 0), (W, 38), (12, 17, 30), -1)
+    cv2.putText(frame, 'NeuroSense-AI  |  Gait & Posture Analysis',
+                (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (175, 198, 255), 1, cv2.LINE_AA)
 
-    # ── Legend panel (bottom) ─────────────────────────────────────────────
-    legend_y = H - 120
-    cv2.rectangle(frame, (0, legend_y), (W, H), (10, 14, 24), -1)
-
+    # ── Legend panel (bottom strip) ───────────────────────────────────────
     LABELS = {
         'arm_asymmetry':  'Arm Swing Asymmetry',
-        'stride_rhythm':  'Stride Rhythm (CoV)',
+        'stride_rhythm':  'Stride Rhythm CoV',
         'low_cadence':    'Low Cadence',
         'bradykinesia':   'Bradykinesia',
         'step_asymmetry': 'Step Asymmetry',
@@ -572,24 +691,29 @@ def draw_annotated_frame(video_path: str, biomarker_flags: dict, uploads_dir: st
         'head_bob':       'Head Bob',
     }
 
+    panel_h = 28 * ((len(biomarker_flags) + 3) // 4)
+    legend_y = H - panel_h - 4
+    cv2.rectangle(frame, (0, legend_y), (W, H), (10, 14, 24), -1)
+
     col_w = W // 4
     items = list(biomarker_flags.items())
     for i, (key, (flagged, _)) in enumerate(items[:8]):
         col = i % 4
         row = i // 4
-        x = col * col_w + 10
-        y = legend_y + 20 + row * 22
-        color = (60, 80, 220) if flagged else (20, 180, 80)
-        icon  = '\u25CF RISK' if flagged else '\u2713 OK'
+        x   = col * col_w + 8
+        y   = legend_y + 18 + row * 24
+        color = BIOMARKER_COLORS.get(key, (80, 80, 220)) if flagged else (20, 180, 80)
+        icon  = '\u25CF RISK' if flagged else '\u2713 OK  '
         label = LABELS.get(key, key)
         cv2.putText(frame, f'{icon}  {label}',
-                    (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+                    (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1, cv2.LINE_AA)
 
     # ── Save ──────────────────────────────────────────────────────────────
-    filename = f'annotated_{uuid.uuid4().hex[:10]}.png'
+    filename  = f'annotated_{uuid.uuid4().hex[:10]}.png'
     os.makedirs(uploads_dir, exist_ok=True)
     save_path = os.path.join(uploads_dir, filename)
     cv2.imwrite(save_path, frame)
+    print(f'[Annotation] Saved skeleton frame: {save_path}', flush=True)
     return filename
 
 
@@ -605,18 +729,25 @@ def analyze_visual(video_path: str, uploads_dir: str = None) -> dict:
     if MEDIAPIPE_AVAILABLE:
         result = analyze_with_mediapipe(video_path)
         if result is not None:
-            # Generate annotated skeleton image
-            if uploads_dir and result.get('_biomarker_votes'):
+            # Generate annotated skeleton image using the pre-captured best frame
+            if uploads_dir and result.get('_biomarker_votes') and result.get('_best_frame') is not None:
                 try:
                     filename = draw_annotated_frame(
-                        video_path, result['_biomarker_votes'], uploads_dir
+                        result.pop('_best_frame'),
+                        result.pop('_best_lm'),
+                        result['_biomarker_votes'],
+                        uploads_dir,
                     )
                     if filename:
                         result['annotated_image_filename'] = filename
+                        print(f'[NeuroSense] Annotated frame saved: {filename}', flush=True)
                 except Exception as e:
+                    print(f'[NeuroSense] Annotation error: {e}', flush=True, file=sys.stderr)
                     result['annotation_error'] = str(e)
-            # Remove internal key before returning
+            # Remove internal keys before returning
             result.pop('_biomarker_votes', None)
+            result.pop('_best_frame', None)
+            result.pop('_best_lm', None)
             return result
 
     return analyze_with_opencv(video_path)
