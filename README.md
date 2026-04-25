@@ -88,12 +88,12 @@ All modality scores are **fused** using weighted confidence fusion into a final 
 
 ## 📊 Accuracy
 
-| Model | Accuracy | Dataset |
+| Model | Model Confidence | Dataset |
 |-------|----------|---------|
-| Voice (XGBoost ensemble) | ~94% | UCI Parkinson's |
-| Handwriting (EfficientNet-B0) | ~89% | UCSF Spiral/Wave |
-| Visual Gait (MediaPipe, 7 biomarkers) | ~91% | PhysioNet gait |
-| Tremor (Gradient Boosting) | ~88% | UCI/PhysioNet |
+| Voice Analysis (XGBoost ensemble)| ~82% | UCI Parkinson's |
+| Handwriting Analysis (EfficientNet-B0) | ~85% | UCSF Spiral/Wave |
+| Visual Gait Analysis(MediaPipe, 7 biomarkers) | ~80% | PhysioNet gait |
+| Tremor Analysis(Gradient Boosting) | ~88% | UCI/PhysioNet |
 
 ---
 
