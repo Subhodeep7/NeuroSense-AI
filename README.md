@@ -88,7 +88,7 @@ All modality scores are **fused** using weighted confidence fusion into a final 
 
 ## 📊 Accuracy
 
-| Model | Model Confidence | Dataset |
+| Model | Model Accuracy | Dataset |
 |-------|----------|---------|
 | Voice Analysis (XGBoost ensemble)| ~82% | UCI Parkinson's |
 | Handwriting Analysis (EfficientNet-B0) | ~85% | UCSF Spiral/Wave |
