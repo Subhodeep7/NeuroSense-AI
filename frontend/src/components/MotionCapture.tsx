@@ -39,10 +39,14 @@ export default function MotionCapture({ type, onCapture }: Props) {
             min_ax: data.min_ax, max_ax: data.max_ax,
             min_ay: data.min_ay, max_ay: data.max_ay,
             min_az: data.min_az, max_az: data.max_az,
+            // BUG FIX: step_count and cadence_spm MUST be forwarded.
+            // Python backend defaults both to 0 when absent → Zone 0 → dominant_freq=0.
+            step_count:  data.step_count  ?? 0,
+            cadence_spm: data.cadence_spm ?? 0,
           };
           const blob = new Blob([JSON.stringify(payloadForML)], { type: "application/json" });
           onCapture(new File([blob], `${type}_wearable.json`, { type: "application/json" }));
-          
+
           if (pollRef.current) clearInterval(pollRef.current);
         }
       } catch {}

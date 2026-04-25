@@ -85,6 +85,34 @@ _POSE_CONNECTIONS = [
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  VIDEO ROTATION CORRECTION HELPER
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phone-recorded portrait videos carry a rotation metadata flag (90°, 270°, etc.)
+# in the MP4/MOV container. OpenCV reads raw pixel data and silently ignores it,
+# so every frame appears rotated 90° — all landmark coordinates are wrong and
+# arm swing is undetectable. Fix: read CAP_PROP_ORIENTATION_META and pre-rotate.
+
+_ROTATION_FIXES = {
+     90: cv2.ROTATE_90_CLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    -90: cv2.ROTATE_90_COUNTERCLOCKWISE,
+}
+
+def _read_rotation_code(cap):
+    """Return a cv2 rotation constant if the video needs correction, else None."""
+    try:
+        angle = int(cap.get(cv2.CAP_PROP_ORIENTATION_META))
+    except Exception:
+        angle = 0
+    code = _ROTATION_FIXES.get(angle, None)
+    if code is not None:
+        print(f"[VideoRotation] Detected rotation={angle}° — applying correction.",
+              file=sys.stderr, flush=True)
+    return code
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  MEDIAPIPE PIPELINE  (primary — high accuracy)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -99,6 +127,7 @@ def analyze_with_mediapipe(video_path: str) -> dict:
 
     fps          = cap.get(cv2.CAP_PROP_FPS) or 25.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    rotate_code  = _read_rotation_code(cap)  # fix portrait phone videos
 
     # Per-frame landmark lists
     # Landmarks used (MediaPipe indices):
@@ -130,6 +159,9 @@ def analyze_with_mediapipe(video_path: str) -> dict:
             ret, frame = cap.read()
             if not ret:
                 break
+            # Apply rotation correction for portrait phone videos
+            if rotate_code is not None:
+                frame = cv2.rotate(frame, rotate_code)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             import mediapipe as mp
             mp_image      = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -166,6 +198,18 @@ def analyze_with_mediapipe(video_path: str) -> dict:
                     'r_ankle_x':    lm[28].x,
                     'l_knee_y':     lm[25].y,
                     'r_knee_y':     lm[26].y,
+                    # ── Elbow landmarks (added for composite arm swing) ──
+                    'l_elbow_x':      lm[13].x,
+                    'l_elbow_y':      lm[13].y,
+                    'r_elbow_x':      lm[14].x,
+                    'r_elbow_y':      lm[14].y,
+                    # ── Per-landmark visibility for arm confidence gating ──
+                    'l_shoulder_vis': lm[11].visibility,
+                    'r_shoulder_vis': lm[12].visibility,
+                    'l_elbow_vis':    lm[13].visibility,
+                    'r_elbow_vis':    lm[14].visibility,
+                    'l_wrist_vis':    lm[15].visibility,
+                    'r_wrist_vis':    lm[16].visibility,
                     'visibility':      (lm[11].visibility + lm[12].visibility +
                                         lm[23].visibility + lm[24].visibility) / 4,
                     'nose_visibility': lm[0].visibility,   # separate — head may be cropped
@@ -195,20 +239,92 @@ def analyze_with_mediapipe(video_path: str) -> dict:
     shoulder_widths = [abs(f['r_shoulder_x'] - f['l_shoulder_x']) for f in good_frames]
     ref_width       = float(np.median(shoulder_widths)) + 1e-6   # median guards outliers
 
-    # ── BIOMARKER 1: Arm Swing Asymmetry ───────────────────────────────────────
-    # FIX M2: use STD of wrist-to-hip distance (swing variation = actual amplitude)
-    # NOT mean (which measures average wrist position, not swing motion).
-    # FIX C2: normalize by shoulder width → camera-distance independent.
-    l_wrist_hip = [abs(f['l_wrist_y'] - f['l_hip_y']) / ref_width for f in good_frames]
-    r_wrist_hip = [abs(f['r_wrist_y'] - f['r_hip_y']) / ref_width for f in good_frames]
-    l_arm_swing_amp = float(np.std(l_wrist_hip))   # variation in distance = swing amplitude
-    r_arm_swing_amp = float(np.std(r_wrist_hip))
-    arm_asym        = abs(l_arm_swing_amp - r_arm_swing_amp) / (l_arm_swing_amp + r_arm_swing_amp + 1e-6)
-    # PD hallmark: one arm freezes → asymmetry > 0.25 (normalised swing amplitude ratio)
-    arm_asym_pd     = arm_asym > 0.25
-    # Keep avg values for JSON output
-    avg_l_swing = float(np.mean(l_wrist_hip))
-    avg_r_swing = float(np.mean(r_wrist_hip))
+    # ── BIOMARKER 1: Arm Swing Asymmetry (composite, landmark-gated) ───────────
+    #
+    # Replaces the old wrist-only metric which was unreliable when arms were
+    # partially occluded or when torso translation dominated wrist displacement.
+    #
+    # Three sub-features per arm (shoulder-relative → torso translation removed):
+    #   F1: std(||wrist – shoulder||₂ / ref_width)         2D extension variation
+    #   F2: std((wrist_x – shoulder_x) / ref_width)        forward-back excursion
+    #   F3: std(atan2(elbow_y – shoulder_y, elbow_x – shoulder_x))  upper-arm angle
+    # Composite = 0.45·F1 + 0.35·F2 + 0.20·F3
+    #
+    # Landmark confidence gate: shoulder + elbow + wrist ALL > ARM_VIS_THRESH.
+    # If fewer than MIN_ARM_FRAMES pass the gate on either side →
+    # arm_data_quality = "inconclusive" and the biomarker is zeroed safely.
+    #
+    # Threshold raised 0.25 → 0.30 (conservative: matches clinical_gate below
+    # and aligns with UPDRS significant arm-freezing criterion).
+
+    ARM_VIS_THRESH = 0.55   # minimum per-landmark visibility to trust
+    MIN_ARM_FRAMES = 10     # minimum gated frames needed per arm
+
+    l_arm_valid = [f for f in good_frames
+                   if (f.get('l_shoulder_vis', 0) > ARM_VIS_THRESH
+                   and f.get('l_elbow_vis',    0) > ARM_VIS_THRESH
+                   and f.get('l_wrist_vis',    0) > ARM_VIS_THRESH)]
+    r_arm_valid = [f for f in good_frames
+                   if (f.get('r_shoulder_vis', 0) > ARM_VIS_THRESH
+                   and f.get('r_elbow_vis',    0) > ARM_VIS_THRESH
+                   and f.get('r_wrist_vis',    0) > ARM_VIS_THRESH)]
+
+    arm_data_quality = "valid"
+
+    if len(l_arm_valid) < MIN_ARM_FRAMES or len(r_arm_valid) < MIN_ARM_FRAMES:
+        # Not enough reliable arm frames — suppress this biomarker
+        arm_asym    = 0.0
+        arm_asym_pd = False
+        avg_l_swing = 0.0
+        avg_r_swing = 0.0
+        arm_data_quality = "inconclusive"
+        print(f"[ArmSwing] INCONCLUSIVE: l_valid={len(l_arm_valid)}  r_valid={len(r_arm_valid)} "
+              f"(need >= {MIN_ARM_FRAMES} each)", file=sys.stderr, flush=True)
+    else:
+        def _arm_composite(frames, sx, sy, ex, ey, wx, wy):
+            """Composite excursion amplitude for one arm. All coords normalised by ref_width."""
+            # F1: 2D shoulder→wrist distance (geometry-independent arm extension)
+            dists      = [np.sqrt((f[wx]-f[sx])**2 + (f[wy]-f[sy])**2) / ref_width for f in frames]
+            f1         = float(np.std(dists))
+            mean_dist  = float(np.mean(dists))
+            # F2: forward-back (x-axis) wrist excursion relative to shoulder
+            fb_vals    = [(f[wx] - f[sx]) / ref_width for f in frames]
+            f2         = float(np.std(fb_vals))
+            # F3: upper-arm angular excursion (shoulder→elbow angle in radians)
+            angles     = [np.arctan2(f[ey] - f[sy], f[ex] - f[sx]) for f in frames]
+            f3         = float(np.std(angles))
+            return 0.45 * f1 + 0.35 * f2 + 0.20 * f3, mean_dist
+
+        l_amp, l_mean_dist = _arm_composite(
+            l_arm_valid,
+            'l_shoulder_x', 'l_shoulder_y', 'l_elbow_x', 'l_elbow_y', 'l_wrist_x', 'l_wrist_y')
+        r_amp, r_mean_dist = _arm_composite(
+            r_arm_valid,
+            'r_shoulder_x', 'r_shoulder_y', 'r_elbow_x', 'r_elbow_y', 'r_wrist_x', 'r_wrist_y')
+
+        # Low-motion guard: if BOTH arms are nearly stationary the subject was
+        # not walking during this video segment — asymmetry=0 would be misleading.
+        # MIN_SWING_AMP chosen = 0.02 (composite units): real walking swing ≥ 0.05.
+        MIN_SWING_AMP = 0.02
+        if max(l_amp, r_amp) < MIN_SWING_AMP:
+            arm_asym    = 0.0
+            arm_asym_pd = False
+            avg_l_swing = l_mean_dist
+            avg_r_swing = r_mean_dist
+            arm_data_quality = "low_motion"
+            print(f"[ArmSwing] LOW-MOTION: l_amp={l_amp:.4f}  r_amp={r_amp:.4f}  "
+                  f"(< {MIN_SWING_AMP}) — subject may not be walking",
+                  file=sys.stderr, flush=True)
+        else:
+            arm_asym    = abs(l_amp - r_amp) / (l_amp + r_amp + 1e-6)
+            arm_asym_pd = arm_asym > 0.30   # raised from 0.25 — consistent with clinical_gate
+
+            avg_l_swing = l_mean_dist
+            avg_r_swing = r_mean_dist
+
+            print(f"[ArmSwing] l_frames={len(l_arm_valid)}  r_frames={len(r_arm_valid)}  "
+                  f"l_amp={l_amp:.4f}  r_amp={r_amp:.4f}  asym={arm_asym:.4f}  pd={arm_asym_pd}",
+                  file=sys.stderr, flush=True)
 
     # ── BIOMARKER 2: Step Length Asymmetry ─────────────────────────────────────
     # FIX C2: normalize ankle-to-hip-midpoint distance by shoulder width.
@@ -446,6 +562,7 @@ def analyze_with_mediapipe(video_path: str) -> dict:
 
         # Biomarker values (all normalised by shoulder width where applicable)
         "arm_swing_asymmetry":  round(arm_asym, 4),
+        "arm_data_quality":     arm_data_quality,   # "valid" | "inconclusive"
         "step_asymmetry":       round(step_asym, 4),
         "trunk_sway":           round(trunk_sway, 4),        # normalised
         "trunk_lean_avg":       round(avg_lean, 4),          # raw torso y-diff for reference
@@ -489,13 +606,16 @@ def analyze_with_opencv(video_path: str) -> dict:
         return {"error": f"Cannot open video: {video_path}",
                 "prediction": -1, "confidence": 0.0, "model": "visual"}
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    fps          = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    rotate_code  = _read_rotation_code(cap)   # fix portrait phone videos
 
     frames = []
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+        if rotate_code is not None:
+            frame = cv2.rotate(frame, rotate_code)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.resize(gray, (320, 240))
         frames.append(gray)

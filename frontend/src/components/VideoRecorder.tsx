@@ -93,8 +93,8 @@ export default function VideoRecorder({ onCapture }: Props) {
       {/* CONTENT */}
       <div className="h-64 flex flex-col items-center justify-center bg-slate/[0.02] border-2 border-dashed border-slate/20 rounded-2xl relative overflow-hidden">
         {preview ? (
-          <div className="w-full h-full relative group animate-in zoom-in duration-500">
-             <video src={preview} controls className="w-full h-full object-cover" />
+          <div className="w-full h-full relative group animate-in zoom-in duration-500 bg-black/80 rounded-2xl overflow-hidden">
+             <video src={preview} controls className="w-full h-full object-contain" />
              <button 
                 onClick={resetCamera}
                 className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-medical-red hover:scale-110 transition-transform z-10"
@@ -111,7 +111,7 @@ export default function VideoRecorder({ onCapture }: Props) {
           </label>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center relative">
-            <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover grayscale contrast-125" />
+            <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-contain" />
             
             {!recording ? (
                <div className="absolute inset-0 flex flex-col items-center justify-center bg-midnight/20 backdrop-blur-[2px]">

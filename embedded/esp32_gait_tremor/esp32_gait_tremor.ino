@@ -236,13 +236,79 @@ bool sendData() {
   float rms_ay  = sqrt(sq_ay/n);
   float rms_az  = sqrt(sq_az/n);
 
-  // Step count: count positive zero-crossings on ay (vertical axis while walking)
-  int steps = 0;
-  for (int i = 1; i < sampleCount; i++) {
-    if (ay_arr[i-1] < mean_ay && ay_arr[i] >= mean_ay) steps++;
-  }
   float duration_s = (ts_arr[sampleCount-1] - ts_arr[0]) / 1000.0;
-  float cadence    = (duration_s > 0) ? (steps / duration_s * 60.0) : 0;
+
+  // ── Tremor frequency: zero-crossing on the best axis ──────────────────────
+  //
+  // BUG (old): counted only POSITIVE crossings of ay.
+  //   Problem 1: wrist tremor often oscillates on ax, not ay.
+  //              If tremor is on ax but we count ay → step_count ≈ 0 → freq = 0.
+  //   Problem 2: only counting positive crossings is correct per-oscillation
+  //              (each cycle has 1 up-crossing) BUT only if the right axis is used.
+  //
+  // FIX: Use the axis with the highest STD (most dynamic range = most likely
+  //      to carry the tremor signal). Count BOTH up and down crossings, then
+  //      divide by 2 to get oscillation count.
+  //
+  //   f_tremor = (all_crossings / 2) / duration_s
+  //   cadence  = f_tremor × 60   (keeps backend Zone logic unchanged)
+
+  // Step 1: pick the axis most likely to carry tremor
+  float*  best_arr  = ay_arr;
+  float   best_mean = mean_ay;
+  float   best_std  = std_ay;
+  if (std_ax >= std_ay && std_ax >= std_az) { best_arr = ax_arr; best_mean = mean_ax; best_std = std_ax; }
+  else if (std_az >  std_ay)                { best_arr = az_arr; best_mean = mean_az; best_std = std_az; }
+
+  // Step 2: Hysteresis deadband crossing counter
+  //
+  // deadband = max(0.05 m/s², best_std × 0.30)   (0.30 tighter than previous 0.25)
+  //
+  //   Noise  (std=0.042): deadband=0.050 > std → armed state rarely reached → freq≈0 ✓
+  //   Tremor (std=0.350): deadband=0.105 → peak ≈ ±0.50 clears band freely → 5 Hz  ✓
+
+  float deadband = fmaxf(0.05f, best_std * 0.30f);
+
+  bool  state_high = false;
+  bool  armed      = false;
+  int   crossings  = 0;
+
+  for (int i = 0; i < sampleCount; i++) {
+    float dev = best_arr[i] - best_mean;
+    if (!armed) {
+      if (dev >  deadband) { state_high = true;  armed = true; }
+      if (dev < -deadband) { state_high = false; armed = true; }
+      continue;
+    }
+    if (state_high  && dev < -deadband) { crossings++; state_high = false; }
+    else if (!state_high && dev >  deadband) { crossings++; state_high = true;  }
+  }
+
+  // Each complete oscillation = 2 crossings
+  int   steps   = crossings / 2;
+  float cadence = (duration_s > 0) ? (steps / duration_s * 60.0f) : 0.0f;
+
+  // Guard 1: minimum oscillation count.
+  // < 8 steps over 15s → < 0.53 Hz → not a tremor; treat as rest.
+  // Prevents single random excursion from being counted as low-frequency tremor.
+  if (steps < 8) {
+    Serial.printf("[FreqDebug] steps=%d < 8 minimum — zeroing cadence (insufficient oscillations)\n", steps);
+    steps   = 0;
+    cadence = 0.0f;
+  }
+
+  // Guard 2: 8 Hz sanity clamp.
+  // PD resting tremor max = 6 Hz.  ET max = 8 Hz.
+  // Anything above 480 spm (8 Hz) is external vibration / ADC jitter, not tremor.
+  if (cadence > 480.0f) {
+    Serial.printf("[FreqDebug] cadence=%.1f spm (>480 = >8Hz) — vibration artifact, zeroing\n", cadence);
+    cadence = 0.0f;
+    steps   = 0;
+  }
+
+  Serial.printf("[FreqDebug] std=%.4f  deadband=%.4f  crossings=%d  steps=%d  cadence=%.1f spm  freq=%.2f Hz\n",
+                best_std, deadband, crossings, steps, cadence, cadence / 60.0f);
+
 
   // ── Build compact features JSON (~300 bytes, safe for ESP32 heap) ─────────
   char json[512];

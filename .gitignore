@@ -105,3 +105,5 @@ Desktop.ini
 *.swp
 *.swo
 *~
+*.mp4
+ml-model/training/walking_dataset/

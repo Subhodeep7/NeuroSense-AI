@@ -55,7 +55,11 @@ def analyze_tremor(data):
                 is_parkinsons = 1
                 confidence = min(0.95, 0.5 + (max_amplitude * 0.1))
             else:
-                confidence = 0.8
+                # Not in PD band — confident it is NOT PD.
+                # Higher amplitude outside PD band = slight uncertainty (ET possible).
+                # FIX: was hardcoded 0.8 → caused 20% baseline risk even for quiet captures.
+                amplitude_penalty = min(0.12, max_amplitude * 0.06)
+                confidence = round(max(0.78, min(0.92, 0.90 - amplitude_penalty)), 4)
 
             return {
                 "model": "tremor",
@@ -180,7 +184,8 @@ def analyze_tremor(data):
             # True resting analysis (device stationary, rhythm not detected by step counter)
             if total_std <= 0.15:
                 # Clean rest — healthy
-                conf = min(0.93, 0.75 + (0.15 - total_std) * 3.0)
+                # FIX: base raised 0.75 → 0.82 so borderline std=0.15 gives risk=18% not 25%
+                conf = min(0.93, 0.82 + (0.15 - total_std) * 3.0)
                 return {
                     "model": "tremor", "source": "esp32_features",
                     "dominant_freq": 0.0,
@@ -214,8 +219,10 @@ def analyze_tremor(data):
                     "confidence": round(conf, 4)
                 }
 
-            # Low-moderate amplitude, inconclusive (healthy lean)
-            conf = min(0.80, 0.60 + (0.40 - min(total_std, 0.40)) * 0.50)
+            # Low-moderate amplitude, inconclusive — lean healthy
+            # FIX: old formula: 0.60 + ... gave confidence 0.60–0.80 → risk 0.20–0.40 (too high).
+            # New: base 0.76 → worst case risk = 0.24 for borderline std.
+            conf = min(0.85, max(0.70, 0.76 + (0.40 - min(total_std, 0.40)) * 0.35))
             return {
                 "model": "tremor", "source": "esp32_features",
                 "dominant_freq": 0.0,
@@ -227,6 +234,9 @@ def analyze_tremor(data):
 
         # ═════════════════════════════════════════════════════════════════════
         # ZONE 1: walking gait (1–3 Hz = 60–180 spm) — reject
+        # Walking is DEFINITELY NOT PD tremor — use high confidence so fusion risk stays low.
+        # FIX: old confidence=0.45 → tremorConf = 1-0.45 = 0.55 (55% elevated fusion risk)!
+        #      New confidence=0.82 → tremorConf = 0.18 (correct — walking ≠ tremor).
         # ═════════════════════════════════════════════════════════════════════
         if 60 <= cadence_spm <= 180:
             return {
@@ -235,7 +245,7 @@ def analyze_tremor(data):
                 "amplitude": round(total_std, 4),
                 "amp_asymmetry": round(std_asymm, 4),
                 "prediction": 0,
-                "confidence": 0.45,
+                "confidence": 0.82,
                 "warning": (
                     f"Walking detected ({cadence_spm:.0f} spm ≈ {tremor_freq_hz:.1f} Hz). "
                     "Sit and rest your hand flat for tremor test."
@@ -256,10 +266,10 @@ def analyze_tremor(data):
         #   amp_score   — normalized std amplitude (0.12+ = detectable tremor)
         #   asym_score  — axis asymmetry (PD is unilateral)
         # ═════════════════════════════════════════════════════════════════════
-        if 180 <= cadence_spm <= 500:
+        if 180 <= cadence_spm <= 480:   # 3 Hz to 8 Hz — tightened from 500 spm (8.3 Hz)
 
-            in_pd_band = 240 <= cadence_spm <= 380   # 4–6.3 Hz
-            in_et_band = 380 < cadence_spm <= 500    # 6.3–8.3 Hz
+            in_pd_band = 240 <= cadence_spm <= 360   # 4–6 Hz (strict PD band)
+            in_et_band = 360 < cadence_spm <= 480    # 6–8 Hz (Essential Tremor band)
 
             # freq_score: peaks at 300 spm (5 Hz), falls off with distance
             freq_score = max(0.0, 1.0 - abs(cadence_spm - 300.0) / 180.0)
@@ -277,12 +287,17 @@ def analyze_tremor(data):
             raw_conf = 0.45 * freq_score + 0.40 * amp_score + 0.15 * asym_score
             confidence = round(min(0.97, max(0.40, 0.60 + raw_conf * 0.40)), 4)
 
-            # Decision: need to be in tremor band AND have detectable amplitude
-            if (in_pd_band or in_et_band) and total_std >= 0.10:
+            # Decision: need to be in PD tremor band AND have detectable amplitude
+            if in_pd_band and total_std >= 0.10:
                 is_parkinsons = 1
+            elif in_et_band and total_std >= 0.10:
+                is_parkinsons = 1   # Essential tremor also flagged
             else:
                 is_parkinsons = 0
-                confidence = round(max(0.30, confidence * 0.55), 4)
+                # FIX: old code: max(0.30, confidence*0.55) → confidence=0.30 → risk=0.70!
+                # Not in tremor band means we are CONFIDENT it is not PD.
+                # High confidence for prediction=0 → fusion reads low risk.
+                confidence = round(min(0.90, max(0.80, 0.88 - amp_score * 0.10)), 4)
 
             return {
                 "model": "tremor", "source": "esp32_features",
@@ -295,11 +310,9 @@ def analyze_tremor(data):
             }
 
         # ═════════════════════════════════════════════════════════════════════
-        # ZONE 3: cadence > 500 spm (> 8.3 Hz)
-        # Two sub-cases:
-        #   A) total_std < 0.08 → already caught by noise-floor check above
-        #   B) total_std >= 0.08 → real high-freq vibration (power tools, vehicle)
-        #      Still not PD tremor (PD is 4–6 Hz max), but not rest either.
+        # ZONE 3: cadence > 480 spm (> 8 Hz) = noise / external vibration
+        # Tightened from 500 spm to 480 spm to match 8 Hz clinical upper bound.
+        # confidence=0.88 → tremorConf=0.12 (correct — noise is not PD).
         # ═════════════════════════════════════════════════════════════════════
         return {
             "model": "tremor", "source": "esp32_features",
@@ -307,10 +320,10 @@ def analyze_tremor(data):
             "amplitude": round(total_std, 4),
             "amp_asymmetry": round(std_asymm, 4),
             "prediction": 0,
-            "confidence": 0.55,
+            "confidence": 0.88,
             "warning": (
-                f"External vibration detected ({cadence_spm:.0f} spm = {tremor_freq_hz:.1f} Hz — "
-                "above PD tremor range). Move away from vibrating surfaces and retake."
+                f"External vibration / noise detected ({cadence_spm:.0f} spm = {tremor_freq_hz:.1f} Hz "
+                "— above PD tremor range 4-6 Hz). Move away from vibrating surfaces and retake."
             )
         }
 

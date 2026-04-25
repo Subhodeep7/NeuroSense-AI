@@ -358,7 +358,21 @@ function PredictionPage() {
               }
 
               const riskColor = riskVal >= 0.75 ? "#EF4444" : riskVal >= 0.5 ? "#F59E0B" : "#10B981";
-              const riskLabel = riskVal >= 0.75 ? "HIGH"    : riskVal >= 0.5 ? "ELEVATED" : "NORMAL";
+
+              // Tremor card: use contextual label for artifact/walking warnings
+              // so the user sees "Motion Artifact" instead of misleading "ELEVATED"
+              const riskLabel = (() => {
+                if (key === "tremorConfidence") {
+                  const w = (result.tremor?.warning ?? "").toLowerCase();
+                  if (w.includes("vibration") || w.includes("artifact") || w.includes("noise"))
+                    return "Motion Artifact";
+                  if (w.includes("walking") || w.includes("walk"))
+                    return "Walking Detected";
+                  if (w.includes("spike"))
+                    return "Sensor Spike";
+                }
+                return riskVal >= 0.75 ? "HIGH" : riskVal >= 0.5 ? "ELEVATED" : "NORMAL";
+              })();
               const isExpanded = expandedCard === key;
 
               // ── Per-modal biomarker rows ────────────────────────────────────
@@ -373,7 +387,16 @@ function PredictionPage() {
                 if (key === "visualConfidence") {
                   const headNotVisible = v.head_visible === "none" || !v.head_visible;
                   return [
-                    { label: "Arm Swing Asymmetry",   value: fmt(v.arm_swing_asymmetry),     ok: (v.arm_swing_asymmetry ?? 0) < 0.25,  badge: true  },
+                    { label: "Arm Swing Asymmetry",
+                      value: v.arm_data_quality === "inconclusive"
+                        ? "Inconclusive (low landmark confidence)"
+                        : v.arm_data_quality === "low_motion"
+                        ? "No motion detected (subject not walking)"
+                        : fmt(v.arm_swing_asymmetry),
+                      ok: v.arm_data_quality === "inconclusive" || v.arm_data_quality === "low_motion"
+                        ? true   // don't flag inconclusive or stationary as risk
+                        : (v.arm_swing_asymmetry ?? 0) < 0.30,   // threshold 0.25→0.30
+                      badge: true  },
                     { label: "Step Length Asymmetry",  value: fmt(v.step_asymmetry),           ok: (v.step_asymmetry ?? 0)      < 0.18,  badge: true  },
                     { label: "Trunk Lateral Sway",     value: fmt(v.trunk_sway, 4),            ok: (v.trunk_sway ?? 0)          < 0.08,  badge: true  },
                     { label: "Trunk Lean Ratio",       value: fmt(v.trunk_lean_ratio, 3),      ok: (v.trunk_lean_ratio ?? 0)    < 0.18,  badge: true  },
@@ -391,7 +414,14 @@ function PredictionPage() {
                 }
 
                 if (key === "tremorConfidence") return [
-                  { label: "Detected Frequency",   value: t.dominant_freq != null ? `${t.dominant_freq} Hz` : "—",  ok: !t.in_pd_band, badge: true },
+                  { label: "Detected Frequency",
+                    value: t.dominant_freq != null
+                      ? (Number(t.dominant_freq) === 0
+                          ? "Not detected (0.00 Hz)"
+                          : `${Number(t.dominant_freq).toFixed(2)} Hz`)
+                      : "—",
+                    ok: !t.in_pd_band && (t.dominant_freq ?? 0) < 4.0,
+                    badge: true },
                   { label: "Amplitude (STD)",       value: fmt(t.amplitude, 4),     ok: (t.amplitude ?? 0) < 0.10,   badge: true },
                   { label: "Axis Asymmetry",        value: fmt(t.amp_asymmetry),    ok: (t.amp_asymmetry ?? 0) < 2.0, badge: true },
                   { label: "In PD Band (4–6 Hz)",   value: t.in_pd_band ? "YES" : "NO",  ok: !t.in_pd_band, badge: true },
